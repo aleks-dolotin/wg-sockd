@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/middleware"
+)
 
 // NewRouter creates a new HTTP router with all API routes registered.
 func NewRouter(h *Handlers) *http.ServeMux {
@@ -25,3 +29,22 @@ func NewRouter(h *Handlers) *http.ServeMux {
 
 	return mux
 }
+
+// NewRateLimitedRouter creates a router wrapped with rate limiting and
+// read-only guard middleware. Pass nil for any middleware to skip it.
+func NewRateLimitedRouter(h *Handlers, rl *middleware.RateLimiter, ro middleware.ReadOnlyChecker) http.Handler {
+	var handler http.Handler = NewRouter(h)
+
+	// Read-only guard: reject writes when disk is full (innermost).
+	if ro != nil {
+		handler = middleware.ReadOnlyGuard(ro)(handler)
+	}
+
+	// Rate limiting: per-connection throttling (outermost).
+	if rl != nil {
+		handler = rl.Wrap(handler)
+	}
+
+	return handler
+}
+

@@ -57,6 +57,7 @@ type HealthResponse struct {
 	WireGuard           string `json:"wireguard"`
 	SQLite              string `json:"sqlite"`
 	SQLiteRecoveredFrom string `json:"sqlite_recovered_from,omitempty"`
+	DiskOK              *bool  `json:"disk_ok,omitempty"`
 }
 
 // --- Stats Types ---

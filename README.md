@@ -386,6 +386,20 @@ The agent listens on a Unix domain socket with restricted permissions:
 - Private keys appear only in the create response and QR code
 - Key rotation generates new keypair and invalidates the old one atomically
 
+### Rate Limiting (RT-2)
+
+- In-memory per-connection token bucket: **10 req/s** default (configurable via `rate_limit` in config.yaml)
+- Exceeding limit returns HTTP 429 with `Retry-After: 1` header
+- Health endpoint (`/api/health`) is always exempted — monitoring and watchdog never throttled
+- Set `rate_limit: 0` to disable
+
+### Operational Resilience
+
+- **Socket self-healing (FM-3)** — agent monitors socket file every 5s; if deleted or replaced, automatically re-creates listener and resumes serving
+- **Debounced conf writing (PM-4)** — rapid mutations are coalesced into a single `wg0.conf` write (100ms window); batch endpoint bypasses debounce
+- **Graceful degradation (FM-6)** — when disk is full, write operations return HTTP 503 while reads continue working; auto-recovers when space is freed
+- **SQLite backup & recovery (FM-2)** — hourly `.db.bak` with fsync; 3-level recovery chain on corruption: backup → conf comments → clean start
+
 ### Config Preservation (F4)
 
 - Agent **never modifies** the `[Interface]` section of `wg0.conf`

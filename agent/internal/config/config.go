@@ -31,6 +31,7 @@ type Config struct {
 	PeerLimit          int                  `yaml:"peer_limit"`
 	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
 	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
+	RateLimit          int                  `yaml:"rate_limit"`
 }
 
 // Defaults returns a Config populated with default values.
@@ -44,6 +45,7 @@ func Defaults() *Config {
 		AutoApproveUnknown: false,
 		PeerLimit:          250,
 		ReconcileInterval:  30 * time.Second,
+		RateLimit:          10,
 	}
 }
 

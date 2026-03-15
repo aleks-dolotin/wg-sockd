@@ -12,7 +12,8 @@ type Checker struct {
 	wgClient      wireguard.WireGuardClient
 	db            *storage.DB
 	interfaceName string
-	recoveredFrom string // set if DB was recovered from backup/conf at startup
+	recoveredFrom string       // set if DB was recovered from backup/conf at startup
+	diskChecker   *DiskChecker // optional — set via SetDiskChecker
 }
 
 // NewChecker creates a new health Checker.
@@ -27,6 +28,11 @@ func NewChecker(wgClient wireguard.WireGuardClient, db *storage.DB, interfaceNam
 // SetRecoveredFrom records that the DB was recovered from a backup source.
 func (c *Checker) SetRecoveredFrom(source string) {
 	c.recoveredFrom = source
+}
+
+// SetDiskChecker attaches a disk checker for disk_ok health reporting.
+func (c *Checker) SetDiskChecker(dc *DiskChecker) {
+	c.diskChecker = dc
 }
 
 // Check performs health checks and returns the overall status.
@@ -53,12 +59,19 @@ func (c *Checker) Check() api.HealthResponse {
 		resp.SQLiteRecoveredFrom = c.recoveredFrom
 	}
 
+	// Check disk space if disk checker is configured.
+	if c.diskChecker != nil {
+		diskOK := !c.diskChecker.IsReadOnly()
+		resp.DiskOK = &diskOK
+	}
+
 	// Determine overall status.
 	wgOK := resp.WireGuard == "ok"
 	dbOK := resp.SQLite == "ok"
+	diskOK := c.diskChecker == nil || !c.diskChecker.IsReadOnly()
 
 	switch {
-	case wgOK && dbOK:
+	case wgOK && dbOK && diskOK:
 		resp.Status = "ok"
 	case !wgOK && !dbOK:
 		resp.Status = "unavailable"

@@ -22,7 +22,10 @@ import (
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/api"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/health"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/middleware"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/reconciler"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/sockmon"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
 )
@@ -75,6 +78,7 @@ func main() {
 	cfg.ReconcileInterval = fileCfg.ReconcileInterval
 	cfg.PeerProfiles = fileCfg.PeerProfiles
 	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
+	cfg.RateLimit = fileCfg.RateLimit
 
 	log.Printf("Config loaded: interface=%s, socket=%s, db=%s", cfg.Interface, cfg.SocketPath, cfg.DBPath)
 
@@ -86,6 +90,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// 1b. Run SQLite recovery chain if database is corrupted (FM-2).
+	parseComments := func(path string) (map[string]storage.PeerMeta, error) {
+		meta, err := confwriter.ParseConfComments(path)
+		if err != nil {
+			return nil, err
+		}
+		result := make(map[string]storage.PeerMeta, len(meta))
+		for k, v := range meta {
+			result[k] = storage.PeerMeta{Name: v.Name, Notes: v.Notes}
+		}
+		return result, nil
+	}
+	recoveredFrom, err := storage.RecoverDB(cfg.DBPath, cfg.ConfPath, parseComments)
+	if err != nil {
+		log.Printf("WARNING: recovery chain error: %v", err)
+	}
+	if recoveredFrom != "" {
+		log.Printf("WARN: database recovered from: %s", recoveredFrom)
+	}
+
 	// 2. Open SQLite.
 	db, err := storage.NewDB(cfg.DBPath)
 	if err != nil {
@@ -93,6 +117,9 @@ func main() {
 	}
 	defer db.Close()
 	log.Println("SQLite initialized")
+
+	// 2a. Start hourly backup loop (first backup after 5 minutes).
+	go db.BackupLoop(ctx, cfg.DBPath, 5*time.Minute)
 
 	// 2b. Seed peer profiles from config (first start only).
 	if len(cfg.PeerProfiles) > 0 {
@@ -138,9 +165,18 @@ func main() {
 	// 5b. Start periodic reconciliation loop.
 	go rec.RunLoop(ctx, cfg.ReconcileInterval)
 
-	// 6. Create handlers + router.
+	// 5c. Start disk space monitor for graceful degradation (FM-6).
+	diskChecker := health.NewDiskChecker(filepath.Dir(cfg.DBPath), health.DefaultDiskThreshold)
+	go diskChecker.RunLoop(ctx.Done())
+
+	// 6. Create handlers + router with rate limiting and read-only guard.
 	handlers := api.NewHandlers(wgClient, db, cfg, cw, rec)
-	mux := api.NewRouter(handlers)
+	var rl *middleware.RateLimiter
+	if cfg.RateLimit > 0 {
+		rl = middleware.NewRateLimiter(float64(cfg.RateLimit), cfg.RateLimit)
+		log.Printf("Rate limiting enabled: %d req/s per connection", cfg.RateLimit)
+	}
+	mux := api.NewRateLimitedRouter(handlers, rl, diskChecker)
 
 	// 6. Remove stale socket.
 	if err := os.Remove(cfg.SocketPath); err != nil && !os.IsNotExist(err) {
@@ -152,19 +188,14 @@ func main() {
 		log.Fatalf("FATAL: creating socket directory: %v", err)
 	}
 
-	// 8. Set umask for secure socket creation (F6).
-	oldMask := syscall.Umask(0117)
-
-	// 9. Listen on Unix socket.
-	listener, err := net.Listen("unix", cfg.SocketPath)
-	if err != nil {
-		log.Fatalf("FATAL: listening on socket: %v", err)
+	// 8-13. Create socket monitor with self-healing (FM-3).
+	sm := sockmon.New(cfg.SocketPath, mux, middleware.ConnContext)
+	if err := sm.Start(); err != nil {
+		log.Fatalf("FATAL: starting socket server: %v", err)
 	}
 
-	// 10. Restore umask.
-	syscall.Umask(oldMask)
-
-	log.Printf("Listening on %s", cfg.SocketPath)
+	// 13a. Start socket self-healing monitor goroutine.
+	go sm.RunMonitor(ctx)
 
 	// 11. sd_notify ready.
 	if ok, err := daemon.SdNotify(false, daemon.SdNotifyReady); err != nil {
@@ -176,8 +207,6 @@ func main() {
 	// 12. Start watchdog goroutine.
 	go watchdogLoop(ctx)
 
-	// 13. Serve HTTP on Unix socket.
-	server := &http.Server{Handler: mux}
 
 	// 13b. Optional: TCP listener for embedded UI mode.
 	var tcpServer *http.Server
@@ -234,7 +263,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("FATAL: TCP listen on %s: %v", *uiListenAddr, err)
 		}
-		tcpServer = &http.Server{Handler: uiMux}
+		tcpServer = &http.Server{
+			Handler:     uiMux,
+			ConnContext: middleware.ConnContext,
+		}
 		go func() {
 			log.Printf("UI available at http://%s", *uiListenAddr)
 			if err := tcpServer.Serve(tcpListener); err != http.ErrServerClosed {
@@ -249,17 +281,18 @@ func main() {
 		log.Println("Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(shutdownCtx)
+		sm.Shutdown(shutdownCtx)
 		if tcpServer != nil {
 			tcpServer.Shutdown(shutdownCtx)
 		}
 	}()
 
+	// Block until context is cancelled (signal received).
 	log.Println("wg-sockd ready")
-	if err := server.Serve(listener); err != http.ErrServerClosed {
-		log.Fatalf("FATAL: server error: %v", err)
-	}
+	<-ctx.Done()
 
+	// Give shutdown goroutine time to finish.
+	time.Sleep(100 * time.Millisecond)
 	log.Println("wg-sockd stopped")
 }
 
