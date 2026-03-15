@@ -1,0 +1,8 @@
+# wg-sockd agent configuration
+interface: wg0
+socket_path: /var/run/wg-sockd/wg-sockd.sock
+db_path: /var/lib/wg-sockd/wg-sockd.db
+conf_path: /etc/wireguard/wg0.conf
+auto_approve_unknown: false
+peer_limit: 250
+reconcile_interval: 30s

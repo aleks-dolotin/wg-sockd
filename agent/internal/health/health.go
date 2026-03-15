@@ -1,0 +1,70 @@
+// Package health provides the health check logic for wg-sockd.
+package health
+
+import (
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/api"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
+)
+
+// Checker performs health checks on system dependencies.
+type Checker struct {
+	wgClient      wireguard.WireGuardClient
+	db            *storage.DB
+	interfaceName string
+	recoveredFrom string // set if DB was recovered from backup/conf at startup
+}
+
+// NewChecker creates a new health Checker.
+func NewChecker(wgClient wireguard.WireGuardClient, db *storage.DB, interfaceName string) *Checker {
+	return &Checker{
+		wgClient:      wgClient,
+		db:            db,
+		interfaceName: interfaceName,
+	}
+}
+
+// SetRecoveredFrom records that the DB was recovered from a backup source.
+func (c *Checker) SetRecoveredFrom(source string) {
+	c.recoveredFrom = source
+}
+
+// Check performs health checks and returns the overall status.
+func (c *Checker) Check() api.HealthResponse {
+	resp := api.HealthResponse{
+		Status:    "ok",
+		WireGuard: "ok",
+		SQLite:    "ok",
+	}
+
+	// Check WireGuard.
+	if _, err := c.wgClient.GetDevice(c.interfaceName); err != nil {
+		resp.WireGuard = "error"
+	}
+
+	// Check SQLite with quick_check (faster than integrity_check).
+	var result string
+	if err := c.db.Conn().QueryRow("PRAGMA quick_check").Scan(&result); err != nil || result != "ok" {
+		resp.SQLite = "error"
+	}
+
+	// Set recovery info if applicable.
+	if c.recoveredFrom != "" {
+		resp.SQLiteRecoveredFrom = c.recoveredFrom
+	}
+
+	// Determine overall status.
+	wgOK := resp.WireGuard == "ok"
+	dbOK := resp.SQLite == "ok"
+
+	switch {
+	case wgOK && dbOK:
+		resp.Status = "ok"
+	case !wgOK && !dbOK:
+		resp.Status = "unavailable"
+	default:
+		resp.Status = "degraded"
+	}
+
+	return resp
+}

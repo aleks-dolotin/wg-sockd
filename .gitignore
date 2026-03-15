@@ -2,3 +2,14 @@
 **/*.iml
 *.iws
 *.ipr
+.claude/
+.github/
+_bmad/
+_bmad-output/
+
+# Build artifacts
+bin/
+agent/wg-sockd
+spike/spike-local
+spike/spike-arm64
+spike/spike-amd64

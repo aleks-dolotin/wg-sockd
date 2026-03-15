@@ -1,0 +1,24 @@
+[Unit]
+Description=wg-sockd WireGuard Management Agent
+After=network.target
+Documentation=https://github.com/aleks-dolotin/wg-sockd
+
+[Service]
+Type=notify
+User=wg-sockd
+Group=wg-sockd
+AmbientCapabilities=CAP_NET_ADMIN
+ExecStart=/usr/local/bin/wg-sockd --config /etc/wg-sockd/config.yaml
+Restart=on-failure
+RestartSec=2
+WatchdogSec=30
+RuntimeDirectory=wg-sockd
+StateDirectory=wg-sockd
+ConfigurationDirectory=wg-sockd
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/etc/wireguard /var/lib/wg-sockd /var/run/wg-sockd
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
