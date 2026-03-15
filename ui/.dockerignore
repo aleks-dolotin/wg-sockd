@@ -1,0 +1,9 @@
+node_modules
+web/node_modules
+.git
+_bmad*
+docs
+spike
+test
+*.md
+

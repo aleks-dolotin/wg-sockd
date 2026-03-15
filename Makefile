@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall clean smoke
+.PHONY: build test install uninstall clean smoke docker-build test-ui
 
 BINARY := wg-sockd
 BIN_DIR := bin
@@ -55,3 +55,12 @@ smoke:
 clean:
 	rm -rf $(BIN_DIR)
 	cd agent && rm -f wg-sockd
+
+# Build UI Docker image
+docker-build:
+	docker build -t wg-sockd-ui:latest -f ui/Dockerfile ui/
+
+# Run UI proxy tests
+test-ui:
+	cd ui && go test ./...
+
