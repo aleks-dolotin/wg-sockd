@@ -29,6 +29,7 @@ const (
 type Manager struct {
 	socketPath string
 	state      atomic.Value // string
+	httpClient *http.Client
 
 	// Configurable intervals — exported for testing.
 	PollInterval   time.Duration
@@ -43,6 +44,14 @@ func New(socketPath string) *Manager {
 		PollInterval:   2 * time.Second,
 		HealthInterval: 5 * time.Second,
 		HealthTimeout:  3 * time.Second,
+	}
+	m.httpClient = &http.Client{
+		Timeout: m.HealthTimeout,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", m.socketPath)
+			},
+		},
 	}
 	m.state.Store(StateDisconnected)
 	return m
@@ -98,15 +107,7 @@ func (m *Manager) socketExists() bool {
 
 // healthCheck performs GET /api/health via the Unix socket.
 func (m *Manager) healthCheck() bool {
-	client := &http.Client{
-		Timeout: m.HealthTimeout,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", m.socketPath)
-			},
-		},
-	}
-	resp, err := client.Get("http://unix/api/health")
+	resp, err := m.httpClient.Get("http://unix/api/health")
 	if err != nil {
 		return false
 	}

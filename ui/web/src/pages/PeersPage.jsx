@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePeers } from '@/api/hooks'
 import { deletePeer, approvePeer } from '@/api/client'
 import { formatBytes, truncateKey, isPeerOnline } from '@/lib/format'
+import { useConnection } from '@/components/ConnectionContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +19,7 @@ export default function PeersPage() {
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [qrPeer, setQrPeer] = useState(null)
+  const { isConnected } = useConnection()
 
   const deleteMut = useMutation({
     mutationFn: (id) => deletePeer(id),
@@ -52,7 +54,7 @@ export default function PeersPage() {
             <Badge variant="outline" className="ml-2">Auto-discovered only</Badge>
           )}
         </h2>
-        <Button onClick={() => navigate('/peers/new')}>Add Peer</Button>
+        <Button onClick={() => navigate('/peers/new')} disabled={!isConnected}>Add Peer</Button>
       </div>
 
       {filteredPeers.length === 0 ? (
@@ -107,9 +109,11 @@ export default function PeersPage() {
                           onClick={() => setQrPeer(peer)}>QR</Button>
                         {peer.auto_discovered && (
                           <Button variant="outline" size="sm"
+                            disabled={!isConnected}
                             onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
                         )}
                         <Button variant="ghost" size="sm" className="text-red-600"
+                          disabled={!isConnected}
                           onClick={() => setDeleteTarget(peer)}>Delete</Button>
                       </TableCell>
                     </TableRow>
@@ -151,9 +155,11 @@ export default function PeersPage() {
                         onClick={() => setQrPeer(peer)}>QR</Button>
                       {peer.auto_discovered && (
                         <Button variant="outline" size="sm"
+                          disabled={!isConnected}
                           onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
                       )}
                       <Button variant="outline" size="sm" className="text-red-600"
+                        disabled={!isConnected}
                         onClick={() => setDeleteTarget(peer)}>Delete</Button>
                     </div>
                   </CardContent>
@@ -178,7 +184,7 @@ export default function PeersPage() {
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
             <Button variant="destructive"
               onClick={() => deleteMut.mutate(deleteTarget?.id)}
-              disabled={deleteMut.isPending}>
+              disabled={deleteMut.isPending || !isConnected}>
               {deleteMut.isPending ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>

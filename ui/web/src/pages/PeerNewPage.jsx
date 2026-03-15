@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useProfiles } from '@/api/hooks'
 import { createPeer } from '@/api/client'
+import { isValidCIDR } from '@/lib/format'
+import { useConnection } from '@/components/ConnectionContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,10 +17,12 @@ export default function PeerNewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: profiles } = useProfiles()
+  const { isConnected } = useConnection()
   const [name, setName] = useState('')
   const [profile, setProfile] = useState('')
   const [notes, setNotes] = useState('')
   const [customIPs, setCustomIPs] = useState('')
+  const [cidrError, setCidrError] = useState('')
   const [result, setResult] = useState(null)
 
   const createMut = useMutation({
@@ -31,9 +35,16 @@ export default function PeerNewPage() {
 
   function handleSubmit(e) {
     e.preventDefault()
+    setCidrError('')
     const body = { friendly_name: name, notes: notes || undefined }
     if (isCustom) {
-      body.allowed_ips = customIPs.split(',').map(s => s.trim()).filter(Boolean)
+      const cidrs = customIPs.split(',').map(s => s.trim()).filter(Boolean)
+      const invalid = cidrs.filter(c => !isValidCIDR(c))
+      if (invalid.length > 0) {
+        setCidrError(`Invalid CIDR(s): ${invalid.join(', ')}`)
+        return
+      }
+      body.allowed_ips = cidrs
     } else if (profile) {
       body.profile = profile
     }
@@ -72,8 +83,9 @@ export default function PeerNewPage() {
           <div><label className="text-sm font-medium">Notes</label>
             <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" /></div>
           {createMut.error && <Alert variant="destructive"><AlertDescription>{createMut.error.message}</AlertDescription></Alert>}
+          {cidrError && <Alert variant="destructive"><AlertDescription>{cidrError}</AlertDescription></Alert>}
           <div className="flex gap-2">
-            <Button type="submit" disabled={createMut.isPending || !name}>{createMut.isPending ? 'Creating...' : 'Create Peer'}</Button>
+            <Button type="submit" disabled={createMut.isPending || !name || !isConnected}>{createMut.isPending ? 'Creating...' : 'Create Peer'}</Button>
             <Button type="button" variant="outline" onClick={() => navigate('/')}>Cancel</Button>
           </div>
         </form>
