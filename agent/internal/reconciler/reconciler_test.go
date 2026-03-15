@@ -4,8 +4,10 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -54,7 +56,7 @@ func newTestReconciler(t *testing.T, mock *mockWgClient) (*Reconciler, *storage.
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
 
-	r := New(mock, db, cfg)
+	r := New(mock, db, cfg, confwriter.NewSharedWriter())
 	return r, db
 }
 
@@ -205,5 +207,77 @@ func TestReconcileOnce_PeersInBoth_NoChanges(t *testing.T) {
 	}
 	if len(mock.configCalls) != 0 {
 		t.Errorf("expected 0 config calls, got %d", len(mock.configCalls))
+	}
+}
+
+func TestReconcileOnce_AutoApproveUnknown(t *testing.T) {
+	unknownKey, _ := wgtypes.GeneratePrivateKey()
+	unknownPub := unknownKey.PublicKey()
+	_, cidr, _ := net.ParseCIDR("10.0.0.99/32")
+
+	mock := &mockWgClient{
+		device: &wireguard.Device{
+			Name: "wg0",
+			Peers: []wireguard.Peer{
+				{PublicKey: unknownPub, AllowedIPs: []net.IPNet{*cidr}},
+			},
+		},
+	}
+
+	db, err := storage.NewDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	cfg := config.Defaults()
+	cfg.ConfPath = t.TempDir() + "/wg0.conf"
+	cfg.AutoApproveUnknown = true
+
+	r := New(mock, db, cfg, confwriter.NewSharedWriter())
+
+	err = r.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should NOT remove from kernel.
+	if len(mock.removedKeys) != 0 {
+		t.Errorf("auto_approve should not remove peers: got %d removals", len(mock.removedKeys))
+	}
+
+	// Should insert as enabled + auto_discovered.
+	dbPeer, err := db.GetPeerByPubKey(unknownPub.String())
+	if err != nil {
+		t.Fatalf("peer should be in DB: %v", err)
+	}
+	if !dbPeer.AutoDiscovered {
+		t.Error("should be auto_discovered")
+	}
+	// UpsertPeerFromReconcile sets Enabled=true by default (INSERT OR IGNORE uses default).
+	// In auto_approve mode we do NOT disable the peer.
+}
+
+func TestRunLoop_StopsOnCancel(t *testing.T) {
+	mock := &mockWgClient{}
+	r, _ := newTestReconciler(t, mock)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		r.RunLoop(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+
+	// Let a few ticks happen.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Success — RunLoop returned.
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunLoop did not stop after context cancellation")
 	}
 }

@@ -61,41 +61,45 @@ type HealthResponse struct {
 
 // --- Stats Types ---
 
-// StatsResponse holds aggregate statistics.
+// StatsResponse holds aggregate statistics from live wgctrl data.
 type StatsResponse struct {
-	TotalPeers      int   `json:"total_peers"`
-	EnabledPeers    int   `json:"enabled_peers"`
-	DisabledPeers   int   `json:"disabled_peers"`
-	AutoDiscovered  int   `json:"auto_discovered"`
-	ConnectedPeers  int   `json:"connected_peers"`
-	TotalRxBytes    int64 `json:"total_rx_bytes"`
-	TotalTxBytes    int64 `json:"total_tx_bytes"`
+	TotalPeers  int   `json:"total_peers"`
+	OnlinePeers int   `json:"online_peers"`
+	TotalRx     int64 `json:"total_rx"`
+	TotalTx     int64 `json:"total_tx"`
 }
 
 // --- Profile Types ---
 
 // ProfileResponse represents a peer profile with resolved allowed IPs.
 type ProfileResponse struct {
-	Name            string   `json:"name"`
-	Description     string   `json:"description,omitempty"`
-	AllowedIPs      []string `json:"allowed_ips"`
-	DNS             string   `json:"dns,omitempty"`
-	PeerCount       int      `json:"peer_count"`
+	Name               string   `json:"name"`
+	DisplayName        string   `json:"display_name"`
+	AllowedIPs         []string `json:"allowed_ips"`
+	ExcludeIPs         []string `json:"exclude_ips"`
+	ResolvedAllowedIPs []string `json:"resolved_allowed_ips"`
+	Description        string   `json:"description,omitempty"`
+	IsDefault          bool     `json:"is_default"`
+	RouteCount         int      `json:"route_count"`
+	RouteWarning       string   `json:"route_warning,omitempty"`
+	PeerCount          int      `json:"peer_count"`
 }
 
 // CreateProfileRequest is the input for POST /api/profiles.
 type CreateProfileRequest struct {
 	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
+	DisplayName string   `json:"display_name"`
 	AllowedIPs  []string `json:"allowed_ips"`
-	DNS         string   `json:"dns,omitempty"`
+	ExcludeIPs  []string `json:"exclude_ips"`
+	Description string   `json:"description,omitempty"`
 }
 
 // UpdateProfileRequest is the input for PUT /api/profiles/{name}.
 type UpdateProfileRequest struct {
-	Description *string  `json:"description,omitempty"`
+	DisplayName *string  `json:"display_name,omitempty"`
 	AllowedIPs  []string `json:"allowed_ips,omitempty"`
-	DNS         *string  `json:"dns,omitempty"`
+	ExcludeIPs  []string `json:"exclude_ips,omitempty"`
+	Description *string  `json:"description,omitempty"`
 }
 
 // --- Error Types ---

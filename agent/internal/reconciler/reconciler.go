@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
@@ -16,25 +18,65 @@ import (
 
 // Reconciler synchronizes WireGuard kernel state with SQLite.
 type Reconciler struct {
-	wgClient wireguard.WireGuardClient
-	store    *storage.DB
-	cfg      *config.Config
+	wgClient   wireguard.WireGuardClient
+	store      *storage.DB
+	cfg        *config.Config
+	confWriter *confwriter.SharedWriter
+
+	// mu guards ReconcileOnce. Pause acquires a write-lock so that
+	// ReconcileOnce (which holds a read-lock) cannot run concurrently
+	// with operations that must be atomic (e.g. BatchCreatePeers).
+	mu sync.RWMutex
 }
 
 // New creates a new Reconciler.
-func New(wgClient wireguard.WireGuardClient, store *storage.DB, cfg *config.Config) *Reconciler {
+func New(wgClient wireguard.WireGuardClient, store *storage.DB, cfg *config.Config, confWriter *confwriter.SharedWriter) *Reconciler {
 	return &Reconciler{
-		wgClient: wgClient,
-		store:    store,
-		cfg:      cfg,
+		wgClient:   wgClient,
+		store:      store,
+		cfg:        cfg,
+		confWriter: confWriter,
+	}
+}
+
+// Pause prevents ReconcileOnce from running until Resume is called.
+// Callers must always pair Pause with a deferred Resume.
+func (r *Reconciler) Pause() {
+	r.mu.Lock()
+}
+
+// Resume re-enables reconciliation after a Pause.
+func (r *Reconciler) Resume() {
+	r.mu.Unlock()
+}
+
+// RunLoop runs ReconcileOnce on a timer until ctx is cancelled.
+// Errors are logged but do not stop the loop.
+func (r *Reconciler) RunLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.ReconcileOnce(ctx); err != nil {
+				log.Printf("WARNING: periodic reconciliation failed: %v", err)
+			}
+		}
 	}
 }
 
 // ReconcileOnce performs a single reconciliation pass:
 // 1. Unknown peers (in kernel, not in DB) → remove from kernel, insert as disabled
-// 2. Missing peers (in DB enabled, not in kernel) → re-add to kernel
-// 3. Rewrite conf file
+// 2. Disabled-in-DB peers present in kernel (zombies) → remove from kernel
+// 3. Missing peers (in DB enabled, not in kernel) → re-add to kernel
+// 4. Rewrite conf file
 func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
+	// Hold a read-lock so Pause() (write-lock) blocks us during batch operations.
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	// Get current kernel state.
 	dev, err := r.wgClient.GetDevice(r.cfg.Interface)
 	if err != nil {
@@ -58,33 +100,54 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		dbPeerSet[p.PublicKey] = p
 	}
 
-	// Step 1: Find unknown peers (in kernel, not in DB).
+	// Step 1: Find unknown peers (in kernel, not in DB) AND zombie peers
+	// (disabled in DB but still present in kernel — access-control bypass).
 	for pubKeyStr, wgPeer := range kernelPeers {
-		if _, exists := dbPeerSet[pubKeyStr]; exists {
+		dbPeer, exists := dbPeerSet[pubKeyStr]
+
+		if exists {
+			// Zombie detection: peer is known but disabled — must not be in kernel.
+			if !dbPeer.Enabled {
+				log.Printf("WARN: zombie peer detected (disabled in DB, present in kernel) — removing: %s", pubKeyStr)
+				if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
+					log.Printf("ERROR: failed to remove zombie peer %s: %v", pubKeyStr, err)
+				}
+			}
 			continue
 		}
 
-		// Unknown peer — F3 strict enforcement: remove from kernel immediately.
-		log.Printf("WARN: unknown peer discovered and removed from runtime %s", pubKeyStr)
+		// Unknown peer: not in DB at all.
+		if r.cfg.AutoApproveUnknown {
+			// Dev mode: keep unknown peer in kernel, register as enabled + auto_discovered.
+			log.Printf("WARN: unknown peer discovered and auto-approved: %s", pubKeyStr)
 
-		if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
-			log.Printf("ERROR: failed to remove unknown peer %s: %v", pubKeyStr, err)
+			shortKey := pubKeyStr
+			if len(shortKey) > 8 {
+				shortKey = shortKey[:8]
+			}
+			friendlyName := "unknown-" + shortKey
+
+			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, true); err != nil {
+				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
+			}
+		} else {
+			// Strict mode (default): remove from kernel, insert as disabled.
+			log.Printf("WARN: unknown peer discovered and removed from runtime %s", pubKeyStr)
+
+			if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
+				log.Printf("ERROR: failed to remove unknown peer %s: %v", pubKeyStr, err)
+			}
+
+			shortKey := pubKeyStr
+			if len(shortKey) > 8 {
+				shortKey = shortKey[:8]
+			}
+			friendlyName := "unknown-" + shortKey
+
+			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, false); err != nil {
+				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
+			}
 		}
-
-		// Insert as disabled audit record.
-		shortKey := pubKeyStr
-		if len(shortKey) > 8 {
-			shortKey = shortKey[:8]
-		}
-		friendlyName := "unknown-" + shortKey
-
-		if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true); err != nil {
-			log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
-		}
-
-		// Mark as disabled since UpsertPeerFromReconcile uses INSERT OR IGNORE.
-		disabled := false
-		r.store.UpdatePeer(pubKeyStr, &storage.PeerUpdate{Enabled: &disabled})
 	}
 
 	// Step 2: Find missing peers (in DB enabled, not in kernel).
@@ -109,7 +172,6 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 			}
 		}
 
-		// Parse the public key from base64 string.
 		key, err := wireguard.ParseKey(pubKeyStr)
 		if err != nil {
 			log.Printf("ERROR: invalid public key for peer %s: %v", pubKeyStr, err)
@@ -136,6 +198,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 }
 
 // rewriteConf rewrites the WireGuard conf file from current DB state.
+// The actual file write is serialised by SharedWriter's mutex.
 func (r *Reconciler) rewriteConf() error {
 	dbPeers, err := r.store.ListPeers()
 	if err != nil {
@@ -145,7 +208,7 @@ func (r *Reconciler) rewriteConf() error {
 	peers := make([]confwriter.PeerConf, 0, len(dbPeers))
 	for _, p := range dbPeers {
 		if !p.Enabled {
-			continue // unknown/disabled peers NOT written to conf
+			continue
 		}
 		peers = append(peers, confwriter.PeerConf{
 			PublicKey:    p.PublicKey,
@@ -156,5 +219,5 @@ func (r *Reconciler) rewriteConf() error {
 		})
 	}
 
-	return confwriter.WriteConf(r.cfg.ConfPath, peers)
+	return r.confWriter.WriteConf(r.cfg.ConfPath, peers)
 }

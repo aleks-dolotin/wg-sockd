@@ -10,16 +10,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PeerProfileConfig represents a peer profile defined in config.yaml for seeding.
+type PeerProfileConfig struct {
+	Name        string   `yaml:"name"`
+	DisplayName string   `yaml:"display_name"`
+	AllowedIPs  []string `yaml:"allowed_ips"`
+	ExcludeIPs  []string `yaml:"exclude_ips"`
+	Description string   `yaml:"description"`
+}
+
 // Config holds all agent configuration.
 type Config struct {
-	Interface          string        `yaml:"interface"`
-	SocketPath         string        `yaml:"socket_path"`
-	DBPath             string        `yaml:"db_path"`
-	ConfPath           string        `yaml:"conf_path"`
-	ListenAddr         string        `yaml:"listen_addr"`
-	AutoApproveUnknown bool          `yaml:"auto_approve_unknown"`
-	PeerLimit          int           `yaml:"peer_limit"`
-	ReconcileInterval  time.Duration `yaml:"reconcile_interval"`
+	Interface          string               `yaml:"interface"`
+	SocketPath         string               `yaml:"socket_path"`
+	DBPath             string               `yaml:"db_path"`
+	ConfPath           string               `yaml:"conf_path"`
+	ListenAddr         string               `yaml:"listen_addr"`
+	ExternalEndpoint   string               `yaml:"external_endpoint"`
+	AutoApproveUnknown bool                 `yaml:"auto_approve_unknown"`
+	PeerLimit          int                  `yaml:"peer_limit"`
+	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
+	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
 }
 
 // Defaults returns a Config populated with default values.

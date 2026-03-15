@@ -38,6 +38,13 @@ func NewDB(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("enabling WAL mode: %w", err)
 	}
 
+	// Set busy timeout so concurrent operations queue briefly instead of
+	// immediately failing with "database is locked" (default is 0ms).
+	if _, err := conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("setting busy_timeout: %w", err)
+	}
+
 	// Enable foreign keys.
 	if _, err := conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		conn.Close()

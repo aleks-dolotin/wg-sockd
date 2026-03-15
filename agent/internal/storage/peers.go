@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -136,7 +137,7 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 		return nil // nothing to update
 	}
 
-	query := "UPDATE peers SET " + joinStrings(sets, ", ") + " WHERE public_key = ?"
+	query := "UPDATE peers SET " + strings.Join(sets, ", ") + " WHERE public_key = ?"
 	args = append(args, pubKey)
 
 	result, err := db.conn.Exec(query, args...)
@@ -152,25 +153,104 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 
 // UpsertPeerFromReconcile inserts a peer if not already present (INSERT OR IGNORE).
 // Used by the reconciler to track peers discovered in the kernel.
-func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered bool) error {
+// The enabled parameter controls whether the peer starts enabled or disabled.
+func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered, enabled bool) error {
 	_, err := db.conn.Exec(`
-		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered)
-		VALUES (?, ?, ?)
-	`, pubKey, friendlyName, autoDiscovered)
+		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered, enabled)
+		VALUES (?, ?, ?, ?)
+	`, pubKey, friendlyName, autoDiscovered, enabled)
 	if err != nil {
 		return fmt.Errorf("upserting peer from reconcile: %w", err)
 	}
 	return nil
 }
 
-// joinStrings joins a slice of strings with a separator.
-func joinStrings(s []string, sep string) string {
-	result := ""
-	for i, v := range s {
-		if i > 0 {
-			result += sep
-		}
-		result += v
+// ApprovePeer sets a peer as enabled and clears auto_discovered flag.
+// Returns sql.ErrNoRows if peer not found.
+func (db *DB) ApprovePeer(pubKey string) error {
+	result, err := db.conn.Exec(
+		"UPDATE peers SET enabled = 1, auto_discovered = 0 WHERE public_key = ?", pubKey)
+	if err != nil {
+		return fmt.Errorf("approving peer: %w", err)
 	}
-	return result
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
+
+// CreatePeersBatch inserts multiple peers in a single transaction.
+// Returns the list of generated IDs in order.
+func (db *DB) CreatePeersBatch(peers []*Peer) ([]int64, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("beginning batch transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	ids := make([]int64, 0, len(peers))
+	for _, p := range peers {
+		result, err := tx.Exec(`
+			INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes)
+		if err != nil {
+			return nil, fmt.Errorf("inserting peer %s: %w", p.PublicKey, err)
+		}
+		id, _ := result.LastInsertId()
+		ids = append(ids, id)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing batch: %w", err)
+	}
+	return ids, nil
+}
+
+// CountPeers returns the total number of peers.
+func (db *DB) CountPeers() (int, error) {
+	var count int
+	err := db.conn.QueryRow("SELECT COUNT(*) FROM peers").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting peers: %w", err)
+	}
+	return count, nil
+}
+
+// CountPeersPerProfile returns a map of profile name → peer count
+// for all peers that have a non-NULL profile assigned.
+func (db *DB) CountPeersPerProfile() (map[string]int, error) {
+	rows, err := db.conn.Query(
+		"SELECT profile, COUNT(*) FROM peers WHERE profile IS NOT NULL GROUP BY profile")
+	if err != nil {
+		return nil, fmt.Errorf("counting peers per profile: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
+			return nil, fmt.Errorf("scanning peer profile count: %w", err)
+		}
+		counts[name] = count
+	}
+	return counts, rows.Err()
+}
+
+// UpdatePeerPublicKey changes a peer's public key. Used for key rotation.
+// Returns sql.ErrNoRows if the peer is not found.
+func (db *DB) UpdatePeerPublicKey(oldPubKey, newPubKey string) error {
+	result, err := db.conn.Exec("UPDATE peers SET public_key = ? WHERE public_key = ?", newPubKey, oldPubKey)
+	if err != nil {
+		return fmt.Errorf("updating peer public key: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+

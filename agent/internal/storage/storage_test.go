@@ -24,8 +24,8 @@ func TestNewDB_InMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querying schema_version: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 migration recorded, got %d", count)
+	if count != 2 {
+		t.Errorf("expected 2 migrations recorded, got %d", count)
 	}
 
 	// Verify peers table exists.
@@ -145,7 +145,7 @@ func TestListPeers_OrderByCreatedAt(t *testing.T) {
 func TestUpsertPeerFromReconcile_NewPeer(t *testing.T) {
 	db := newTestDB(t)
 
-	err := db.UpsertPeerFromReconcile("reconciled-key", "Auto Peer", true)
+	err := db.UpsertPeerFromReconcile("reconciled-key", "Auto Peer", true, true)
 	if err != nil {
 		t.Fatalf("UpsertPeerFromReconcile: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestUpsertPeerFromReconcile_ExistingPeerIgnored(t *testing.T) {
 	}
 
 	// Upsert should not overwrite.
-	err = db.UpsertPeerFromReconcile("existing-key", "New Name", true)
+	err = db.UpsertPeerFromReconcile("existing-key", "New Name", true, true)
 	if err != nil {
 		t.Fatalf("UpsertPeerFromReconcile: %v", err)
 	}

@@ -6,3 +6,4 @@ conf_path: /etc/wireguard/wg0.conf
 auto_approve_unknown: false
 peer_limit: 250
 reconcile_interval: 30s
+# external_endpoint: "vpn.example.com:51820"  # used in client .conf and QR codes

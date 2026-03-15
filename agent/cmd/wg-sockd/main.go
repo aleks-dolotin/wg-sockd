@@ -18,6 +18,7 @@ import (
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/api"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/reconciler"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
@@ -66,8 +67,14 @@ func main() {
 	// These fields are not CLI flags — always take from file.
 	cfg.PeerLimit = fileCfg.PeerLimit
 	cfg.ReconcileInterval = fileCfg.ReconcileInterval
+	cfg.PeerProfiles = fileCfg.PeerProfiles
+	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
 
 	log.Printf("Config loaded: interface=%s, socket=%s, db=%s", cfg.Interface, cfg.SocketPath, cfg.DBPath)
+
+	if cfg.AutoApproveUnknown {
+		log.Println("WARNING: auto_approve_unknown is enabled — unknown peers will NOT be blocked")
+	}
 
 	// Graceful shutdown context.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -81,6 +88,24 @@ func main() {
 	defer db.Close()
 	log.Println("SQLite initialized")
 
+	// 2b. Seed peer profiles from config (first start only).
+	if len(cfg.PeerProfiles) > 0 {
+		seeds := make([]storage.ProfileSeed, len(cfg.PeerProfiles))
+		for i, p := range cfg.PeerProfiles {
+			seeds[i] = storage.ProfileSeed{
+				Name:        p.Name,
+				DisplayName: p.DisplayName,
+				AllowedIPs:  p.AllowedIPs,
+				ExcludeIPs:  p.ExcludeIPs,
+				Description: p.Description,
+			}
+		}
+		if err := db.SeedProfiles(seeds); err != nil {
+			log.Fatalf("FATAL: seeding profiles: %v", err)
+		}
+		log.Printf("Profile seeding checked (%d profiles configured)", len(seeds))
+	}
+
 	// 3. Create wgctrl client (degraded mode if fails).
 	var wgClient wireguard.WireGuardClient
 	wgClient, err = wireguard.NewWgctrlClient()
@@ -92,32 +117,23 @@ func main() {
 		log.Println("WireGuard client initialized")
 	}
 
-	// 4. Run initial reconciliation.
-	rec := reconciler.New(wgClient, db, cfg)
+	// 4. Create shared config writer — single mutex serialising all wg0.conf writes
+	// across both the API handlers and the Reconciler goroutine.
+	cw := confwriter.NewSharedWriter()
+
+	// 5. Run initial reconciliation.
+	rec := reconciler.New(wgClient, db, cfg, cw)
 	if err := rec.ReconcileOnce(ctx); err != nil {
 		log.Printf("WARNING: initial reconciliation failed: %v", err)
 	} else {
 		log.Println("Initial reconciliation complete")
 	}
 
-	// 4b. Start periodic reconciliation loop.
-	go func() {
-		ticker := time.NewTicker(cfg.ReconcileInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := rec.ReconcileOnce(ctx); err != nil {
-					log.Printf("WARNING: periodic reconciliation failed: %v", err)
-				}
-			}
-		}
-	}()
+	// 5b. Start periodic reconciliation loop.
+	go rec.RunLoop(ctx, cfg.ReconcileInterval)
 
-	// 5. Create handlers + router.
-	handlers := api.NewHandlers(wgClient, db, cfg)
+	// 6. Create handlers + router.
+	handlers := api.NewHandlers(wgClient, db, cfg, cw, rec)
 	mux := api.NewRouter(handlers)
 
 	// 6. Remove stale socket.
