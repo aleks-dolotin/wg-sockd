@@ -1,0 +1,51 @@
+# wg-sockd-ui Helm chart values
+
+# Container image settings
+image:
+  repository: wg-sockd-ui
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Number of replicas — single replica required for hostPath socket access
+replicaCount: 1
+
+# Socket directory on the host (hostPath mount)
+# Mounts DIRECTORY, not socket file directly (FP-5: avoids K8s hostPath socket bug)
+socketDir: /var/run/wg-sockd/
+
+# Node targeting (F1)
+# Option 1: nodeSelector label (default)
+nodeSelector:
+  wg-sockd: active
+
+# Option 2: explicit node pinning — overrides nodeSelector when set
+# nodeName: ""
+
+# Security context (F2: Fixed GID 5000)
+securityContext:
+  runAsNonRoot: true
+  runAsGroup: 5000
+  readOnlyRootFilesystem: true
+
+# Pod-level supplemental groups for socket access
+podSecurityContext:
+  supplementalGroups:
+    - 5000
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+
+# Container port
+containerPort: 8080
+
+# Resource limits (optional)
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 64Mi
+  # requests:
+  #   cpu: 50m
+  #   memory: 32Mi
+

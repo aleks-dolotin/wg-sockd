@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"flag"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +35,9 @@ func main() {
 	// Use defaults initially — they will be overridden by file, then by CLI.
 	cfg := config.Defaults()
 	configPath := flag.String("config", "/etc/wg-sockd/config.yaml", "config file path")
+	serveUI := flag.Bool("serve-ui", false, "serve embedded UI on TCP (requires embed_ui build tag)")
+	serveUIDir := flag.String("serve-ui-dir", "", "serve UI from external directory on TCP (no embed needed)")
+	uiListenAddr := flag.String("ui-listen", "127.0.0.1:8080", "TCP listen address for UI mode (default: loopback only)")
 	cfg.ApplyFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -173,6 +179,70 @@ func main() {
 	// 13. Serve HTTP on Unix socket.
 	server := &http.Server{Handler: mux}
 
+	// 13b. Optional: TCP listener for embedded UI mode.
+	var tcpServer *http.Server
+	if *serveUI || *serveUIDir != "" {
+		uiMux := http.NewServeMux()
+
+		// Mount all API routes on the TCP mux too.
+		uiMux.Handle("/api/", mux)
+
+		// Determine static file source.
+		var staticFS http.FileSystem
+		if *serveUIDir != "" {
+			// External directory mode — no build tag needed.
+			staticFS = http.Dir(*serveUIDir)
+			log.Printf("Serving UI from directory: %s", *serveUIDir)
+		} else if *serveUI {
+			// Embedded mode — requires embed_ui build tag.
+			if embeddedUIFS == nil {
+				log.Fatal("FATAL: --serve-ui requires building with -tags embed_ui")
+			}
+			subFS, err := fs.Sub(*embeddedUIFS, "ui_dist")
+			if err != nil {
+				log.Fatalf("FATAL: embedded UI fs.Sub: %v", err)
+			}
+			staticFS = http.FS(subFS)
+			log.Println("Serving embedded UI assets")
+		}
+
+		// SPA fallback handler: /api/* → API, everything else → static or index.html.
+		uiMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// RT-4: path.Clean on all requests.
+			cleanPath := path.Clean(r.URL.Path)
+
+			// Skip API routes — already handled above.
+			if strings.HasPrefix(cleanPath, "/api/") {
+				http.NotFound(w, r)
+				return
+			}
+
+			// Try serving the static file.
+			f, err := staticFS.Open(cleanPath)
+			if err == nil {
+				f.Close()
+				http.FileServer(staticFS).ServeHTTP(w, r)
+				return
+			}
+
+			// SPA fallback: serve index.html for all non-file paths.
+			r.URL.Path = "/"
+			http.FileServer(staticFS).ServeHTTP(w, r)
+		})
+
+		tcpListener, err := net.Listen("tcp", *uiListenAddr)
+		if err != nil {
+			log.Fatalf("FATAL: TCP listen on %s: %v", *uiListenAddr, err)
+		}
+		tcpServer = &http.Server{Handler: uiMux}
+		go func() {
+			log.Printf("UI available at http://%s", *uiListenAddr)
+			if err := tcpServer.Serve(tcpListener); err != http.ErrServerClosed {
+				log.Printf("TCP server error: %v", err)
+			}
+		}()
+	}
+
 	// Shutdown goroutine.
 	go func() {
 		<-ctx.Done()
@@ -180,6 +250,9 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		server.Shutdown(shutdownCtx)
+		if tcpServer != nil {
+			tcpServer.Shutdown(shutdownCtx)
+		}
 	}()
 
 	log.Println("wg-sockd ready")

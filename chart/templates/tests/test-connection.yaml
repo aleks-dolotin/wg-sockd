@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ .Release.Name }}-test-connection"
+  labels:
+    app.kubernetes.io/name: wg-sockd-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox:1.36
+      command: ['wget']
+      args: ['{{ .Release.Name }}:{{ .Values.service.port }}/ui/status', '-q', '-O', '-', '-T', '5']
+  restartPolicy: Never
+

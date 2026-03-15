@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall clean smoke docker-build test-ui
+.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui
 
 BINARY := wg-sockd
 BIN_DIR := bin
@@ -56,6 +56,18 @@ clean:
 	rm -rf $(BIN_DIR)
 	cd agent && rm -f wg-sockd
 
+# Build React UI (for embedded mode)
+ui:
+	cd ui/web && npm ci && npm run build
+	@echo "React UI built"
+
+# Build agent with embedded UI (~30MB)
+build-full: ui
+	rm -rf agent/cmd/wg-sockd/ui_dist
+	cp -r ui/web/dist agent/cmd/wg-sockd/ui_dist
+	cd agent && go build -tags embed_ui -o ../$(BIN_DIR)/$(BINARY)-full ./cmd/wg-sockd/
+	@echo "Built $(BIN_DIR)/$(BINARY)-full (with embedded UI)"
+
 # Build UI Docker image
 docker-build:
 	docker build -t wg-sockd-ui:latest -f ui/Dockerfile ui/
@@ -63,4 +75,16 @@ docker-build:
 # Run UI proxy tests
 test-ui:
 	cd ui && go test ./...
+
+# Build wg-sockd-ctl CLI binary
+build-ctl:
+	cd cmd/wg-sockd-ctl && CGO_ENABLED=0 go build -ldflags="-s -w" -o ../../$(BIN_DIR)/wg-sockd-ctl .
+	@echo "Built $(BIN_DIR)/wg-sockd-ctl"
+
+# Run CLI tests
+test-ctl:
+	cd cmd/wg-sockd-ctl && go test ./...
+
+# Run all tests across all modules
+test-all: test test-ui test-ctl
 
