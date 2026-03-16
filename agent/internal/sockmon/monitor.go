@@ -47,6 +47,12 @@ func (m *Monitor) Start() error {
 		return err
 	}
 
+	// Prevent listener from deleting socket file on Close — sockmon
+	// manages the file lifecycle explicitly via os.Remove in recreate().
+	if ul, ok := listener.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
+	}
+
 	m.mu.Lock()
 	m.listener = listener
 	m.server = &http.Server{
@@ -124,11 +130,14 @@ func (m *Monitor) recreate() {
 	defer func() { m.recreating = false }()
 
 	// Close existing server — this causes the old Serve goroutine to return.
+	// IMPORTANT: UnixListener.Close() calls os.Remove(socketPath) by default.
+	// We must ensure the old listener is fully closed BEFORE creating the new
+	// socket, otherwise the old Close could delete the newly created file.
 	if m.server != nil {
 		m.server.Close()
 	}
 
-	// Remove stale socket file if any remnant exists.
+	// Remove stale socket file if any remnant exists (belt-and-suspenders).
 	os.Remove(m.socketPath)
 
 	// Create new socket.
@@ -136,6 +145,13 @@ func (m *Monitor) recreate() {
 	if err != nil {
 		log.Printf("ERROR: socket re-creation failed: %v", err)
 		return
+	}
+
+	// Prevent the NEW listener from deleting the socket on Close.
+	// This avoids a race where a future recreate()'s server.Close() could
+	// delete the socket before the next createSocket() runs.
+	if ul, ok := listener.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
 	}
 
 	m.listener = listener

@@ -87,10 +87,10 @@ func TestMonitor_DetectDeletedSocket(t *testing.T) {
 	// Run monitor check — should re-create.
 	m.check()
 
-	// createSocket inside recreate() is synchronous — socket file should
-	// exist immediately after check() returns. Add a small sleep only for
-	// the Serve goroutine to start accepting connections.
-	time.Sleep(500 * time.Millisecond)
+	// createSocket inside recreate() is synchronous and
+	// SetUnlinkOnClose(false) prevents the old listener from deleting
+	// the new file. Socket should exist immediately.
+	time.Sleep(50 * time.Millisecond) // minimal yield for goroutine scheduling
 
 	// Verify socket file re-created.
 	fi, statErr := os.Stat(sockPath)
