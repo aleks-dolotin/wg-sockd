@@ -126,23 +126,23 @@ For K8s deployments, the agent runs on the host (headless, no UI) and a separate
 - WireGuard running on the target node
 - Node labeled for pod scheduling (see below)
 
-### Install Agent on Node
+### 1. Label the Node
+
+The UI proxy pod uses `nodeSelector` to land on the node where the agent's Unix socket lives. Label that node first:
+
+```bash
+# Find the node name where WireGuard is running
+kubectl get nodes
+
+# Label it
+kubectl label node <node-name> wg-sockd=active
+```
+
+### 2. Install Agent on Node
 
 ```bash
 # --agent-only installs the lean binary without embedded UI
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
-```
-
-### Label the Node
-
-The UI proxy pod needs to land on the same node where the agent runs (to access its Unix socket via hostPath). Label that node so Kubernetes knows where to schedule the pod:
-
-```bash
-# List your nodes to find the right name
-kubectl get nodes
-
-# Label the node where wg-sockd agent is installed
-kubectl label node <node-name> wg-sockd=active
 ```
 
 ### Install UI via Helm

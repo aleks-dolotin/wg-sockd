@@ -86,15 +86,20 @@ Preserves config and data in `/etc/wg-sockd` and `/var/lib/wg-sockd`.
 ### Prerequisites
 
 1. WireGuard running on the target node
-2. Agent installed on the node via `install.sh --agent-only`
-3. Node labeled for pod scheduling:
+2. Node labeled for pod scheduling:
 
 ```bash
-# Find the node name where the agent is installed
+# Find the node name where WireGuard is running
 kubectl get nodes
 
 # Label it so the UI proxy pod gets scheduled there
 kubectl label node <node-name> wg-sockd=active
+```
+
+3. Agent installed on the node:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
 ### Install UI Proxy
