@@ -1,0 +1,30 @@
+# golangci-lint configuration for wg-sockd
+# Used by CI workflow (.github/workflows/ci.yml)
+# Runs across all 3 Go modules: agent/, ui/, cmd/wg-sockd-ctl/
+
+run:
+  timeout: 3m
+  go: "1.26"
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+
+linters-settings:
+  govet:
+    enable-all: false
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-rules:
+    # Allow unchecked errors in test files
+    - path: _test\.go
+      linters:
+        - errcheck

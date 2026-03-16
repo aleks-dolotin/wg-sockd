@@ -1,0 +1,96 @@
+# CI workflow for wg-sockd
+# Runs on push to main and pull requests
+# Two parallel jobs: Go (test + lint + cross-compile) and UI (React build + lint)
+#
+# TODO(RT-1): Pin all actions by SHA before first production use.
+#   Run: npx pin-github-action .github/workflows/ci.yml
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read  # RT-2: minimum required scope
+
+jobs:
+  go:
+    name: Go Test & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # PM-3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: '**/go.sum'  # ADR-3: covers all 3 modules
+
+      # PM-4: golangci-lint for ALL Go modules
+      - name: Lint agent
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: agent
+
+      - name: Lint ui-proxy
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: ui
+
+      - name: Lint ctl
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: cmd/wg-sockd-ctl
+
+      # Tests across all 3 Go modules
+      - name: Test agent
+        run: cd agent && go test ./...
+
+      - name: Test ui-proxy
+        run: cd ui && go test ./...
+
+      - name: Test ctl
+        run: cd cmd/wg-sockd-ctl && go test ./...
+
+      # RT-3: Cross-compile check for both platforms
+      - name: Cross-compile check
+        run: |
+          set -e
+          for arch in amd64 arm64; do
+            echo "=== Building for linux/$arch ==="
+            cd $GITHUB_WORKSPACE/agent
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./cmd/wg-sockd/
+            cd $GITHUB_WORKSPACE/ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./cmd/wg-sockd-ui/
+            cd $GITHUB_WORKSPACE/cmd/wg-sockd-ctl
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null .
+          done
+          echo "Cross-compile check passed for amd64 and arm64"
+
+  ui:
+    name: React UI Build & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # PM-3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'ui/web/package-lock.json'
+
+      - name: Install dependencies
+        run: cd ui/web && npm ci
+
+      - name: Lint
+        run: cd ui/web && npm run lint
+
+      - name: Build
+        run: cd ui/web && npm run build
