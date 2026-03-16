@@ -1,12 +1,14 @@
-# golangci-lint configuration for wg-sockd
+# golangci-lint v2 configuration for wg-sockd
 # Used by CI workflow (.github/workflows/ci.yml)
 # Runs across all 3 Go modules: agent/, ui/, cmd/wg-sockd-ctl/
 
+version: "2"
+
 run:
   timeout: 3m
-  go: "1.26"
 
 linters:
+  default: none
   enable:
     - govet
     - errcheck
@@ -15,12 +17,6 @@ linters:
     - gosimple
     - ineffassign
     - typecheck
-
-linters-settings:
-  govet:
-    enable-all: false
-  errcheck:
-    check-type-assertions: true
 
 issues:
   exclude-rules:

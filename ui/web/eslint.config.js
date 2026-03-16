@@ -24,6 +24,19 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Allow exporting hooks alongside components (standard Context + Hook pattern)
+      // and allow exporting variant helpers alongside components (shadcn/ui pattern)
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowExportNames: ['useConnection'], allowConstantExport: true },
+      ],
+    },
+  },
+  // Node.js globals for config files
+  {
+    files: ['vite.config.js'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ])
