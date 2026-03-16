@@ -100,7 +100,13 @@ test-all: test test-ui test-ctl
 # Uses ./tmp/ for isolated dev config and data.
 # NOTE: Environment variables (WG_SOCKD_*) from your shell will still apply.
 #       Use `env -u WG_SOCKD_INTERFACE ... make dev` to isolate fully.
-dev: build
+dev: build-dev
+	@mkdir -p ./tmp
+
+# Build agent with dev_wg tag for local development (in-memory WireGuard)
+build-dev:
+	cd agent && go build -tags dev_wg $(AGENT_LDFLAGS) -o ../$(BIN_DIR)/$(BINARY) ./cmd/wg-sockd/
+	@echo "Built $(BIN_DIR)/$(BINARY) (with dev_wg)"
 	@mkdir -p ./tmp
 	@chmod 700 ./tmp
 	@if [ -f ./tmp/dev-config.yaml ]; then \
@@ -110,5 +116,5 @@ dev: build
 		printf 'interface: wg0\nsocket_path: ./tmp/wg-sockd.sock\ndb_path: ./tmp/wg-sockd.db\nconf_path: ./tmp/wg0.conf\nauto_approve_unknown: false\npeer_limit: 250\nreconcile_interval: 30s\nrate_limit: 10\n' > ./tmp/dev-config.yaml; \
 	fi
 	@touch ./tmp/wg0.conf
-	./$(BIN_DIR)/$(BINARY) --config ./tmp/dev-config.yaml
+	./$(BIN_DIR)/$(BINARY) --config ./tmp/dev-config.yaml --dev-wg
 

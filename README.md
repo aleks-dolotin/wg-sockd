@@ -106,7 +106,7 @@ wg-sockd-ctl peers add --name "alice-phone" --profile "full-tunnel"
 Via API:
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "alice-phone", "profile": "full-tunnel"}'
@@ -119,7 +119,7 @@ Open in browser: `http://your-host:8080/peers`
 Or via API — save QR as PNG:
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/qr -o peer-qr.png
 ```
 
@@ -166,18 +166,21 @@ curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/i
 
 ### 3. Install UI via Helm
 
+Install the chart directly from the registry — no need to clone the repository:
+
 ```bash
-helm install wg-sockd-ui ./chart/ \
-  --set image.repository=ghcr.io/aleks-dolotin/wg-sockd-ui \
-  --set image.tag=latest
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.2.0 -n wg-sockd --create-namespace
 ```
+
+This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 
 ### 4. Verify
 
 ```bash
-kubectl port-forward svc/wg-sockd-ui 8080:8080
-open http://localhost:8080
+kubectl port-forward -n wg-sockd svc/wg-sockd-ui 8080:8080
 ```
+
+Then open `http://localhost:8080`.
 
 ### Custom Values
 
@@ -259,14 +262,14 @@ All config fields can be overridden via CLI flags:
 
 ## API Reference
 
-All endpoints are available via Unix socket. Use `curl --unix-socket` for direct access.
+All endpoints are available via Unix socket. The socket is owned by the `wg-sockd` group — use `sudo` or add your user to the group (`sudo usermod -aG wg-sockd $USER`, then re-login).
 
 ### Health
 
 `GET /api/health`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
 ```
 
 ### Stats
@@ -274,7 +277,7 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
 `GET /api/stats`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/stats
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/stats
 ```
 
 ### Peers
@@ -282,13 +285,13 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/stats
 **List all peers** — `GET /api/peers`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/peers
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/peers
 ```
 
 **Create peer with profile** — `POST /api/peers`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "bob-laptop", "profile": "full-tunnel"}'
@@ -297,7 +300,7 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **Create peer with custom IPs** — `POST /api/peers`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "custom-peer", "allowed_ips": ["10.0.0.0/24"]}'
@@ -306,7 +309,7 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **Update peer** — `PUT /api/peers/{id}`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X PUT http://localhost/api/peers/1 \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "bob-laptop-new", "notes": "Updated name"}'
@@ -315,42 +318,42 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **Delete peer** — `DELETE /api/peers/{id}`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X DELETE http://localhost/api/peers/1
 ```
 
 **Download client .conf** — `GET /api/peers/{id}/conf`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/conf
 ```
 
 **Download QR code PNG** — `GET /api/peers/{id}/qr`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/qr -o peer.png
 ```
 
 **Rotate keypair** — `POST /api/peers/{id}/rotate-keys`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/1/rotate-keys
 ```
 
 **Approve auto-discovered peer** — `POST /api/peers/{id}/approve`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/5/approve
 ```
 
 **Batch create peers** — `POST /api/peers/batch`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/batch \
   -H "Content-Type: application/json" \
   -d '{"peers": [{"friendly_name": "peer1", "profile": "nas-only"}, {"friendly_name": "peer2", "profile": "nas-only"}]}'
@@ -361,13 +364,13 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **List all profiles** — `GET /api/profiles`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/profiles
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/profiles
 ```
 
 **Create profile** — `POST /api/profiles`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/profiles \
   -H "Content-Type: application/json" \
   -d '{"name": "media-only", "display_name": "Media Server", "allowed_ips": ["192.168.1.0/24"], "exclude_ips": ["192.168.1.1/32"], "description": "Access media server only"}'
@@ -376,7 +379,7 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **Update profile** — `PUT /api/profiles/{name}`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X PUT http://localhost/api/profiles/media-only \
   -H "Content-Type: application/json" \
   -d '{"description": "Updated description"}'
@@ -385,7 +388,7 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 **Delete profile** (fails if peers use it) — `DELETE /api/profiles/{name}`
 
 ```bash
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
+sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X DELETE http://localhost/api/profiles/media-only
 ```
 

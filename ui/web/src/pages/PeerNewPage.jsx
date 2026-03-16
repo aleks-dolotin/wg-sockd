@@ -31,7 +31,8 @@ export default function PeerNewPage() {
   })
 
   const selectedProfile = profiles?.find(p => p.name === profile)
-  const isCustom = profile === '__custom__'
+  const hasProfiles = profiles && profiles.length > 0
+  const isCustom = profile === '__custom__' || !hasProfiles
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -58,14 +59,14 @@ export default function PeerNewPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label className="text-sm font-medium">Friendly Name *</label>
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. alice-laptop" required /></div>
-          <div><label className="text-sm font-medium">Profile</label>
+          {hasProfiles && (<div><label className="text-sm font-medium">Profile</label>
             <Select value={profile} onValueChange={setProfile}>
               <SelectTrigger><SelectValue placeholder="Select a profile..." /></SelectTrigger>
               <SelectContent>
                 {(profiles || []).map(p => (<SelectItem key={p.name} value={p.name}>{p.display_name || p.name}</SelectItem>))}
                 <SelectItem value="__custom__">Custom (manual CIDRs)</SelectItem>
               </SelectContent>
-            </Select></div>
+            </Select></div>)}
           {selectedProfile && (
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Network Access Preview</CardTitle></CardHeader>
               <CardContent className="text-xs space-y-1">
@@ -85,7 +86,7 @@ export default function PeerNewPage() {
           {createMut.error && <Alert variant="destructive"><AlertDescription>{createMut.error.message}</AlertDescription></Alert>}
           {cidrError && <Alert variant="destructive"><AlertDescription>{cidrError}</AlertDescription></Alert>}
           <div className="flex gap-2">
-            <Button type="submit" disabled={createMut.isPending || !name || !isConnected}>{createMut.isPending ? 'Creating...' : 'Create Peer'}</Button>
+            <Button type="submit" disabled={createMut.isPending || !name || !isConnected || (isCustom && !customIPs)}>{createMut.isPending ? 'Creating...' : 'Create Peer'}</Button>
             <Button type="button" variant="outline" onClick={() => navigate('/')}>Cancel</Button>
           </div>
         </form>

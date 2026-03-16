@@ -2,8 +2,8 @@
 
 # Container image settings
 image:
-  repository: wg-sockd-ui
-  tag: "latest"
+  repository: ghcr.io/aleks-dolotin/wg-sockd-ui
+  tag: "0.2.0"
   pullPolicy: IfNotPresent
 
 # Number of replicas — single replica required for hostPath socket access

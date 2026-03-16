@@ -227,15 +227,19 @@ func main() {
 		log.Printf("Profile seeding checked (%d profiles configured)", len(seeds))
 	}
 
-	// 3. Create wgctrl client (degraded mode if fails).
+	// 3. Create wgctrl client (dev mode / degraded mode if fails).
 	var wgClient wireguard.WireGuardClient
-	wgClient, err = wireguard.NewWgctrlClient()
-	if err != nil {
-		log.Printf("WARNING: wgctrl init failed: %v — starting in degraded mode", err)
-		wgClient = &degradedWgClient{}
+	if client, ok := maybeDevWgClient(cfg.Interface); ok {
+		wgClient = client
 	} else {
-		defer wgClient.Close()
-		log.Println("WireGuard client initialized")
+		wgClient, err = wireguard.NewWgctrlClient()
+		if err != nil {
+			log.Printf("WARNING: wgctrl init failed: %v — starting in degraded mode", err)
+			wgClient = &degradedWgClient{}
+		} else {
+			defer wgClient.Close()
+			log.Println("WireGuard client initialized")
+		}
 	}
 
 	// 4. Create shared config writer — single mutex serialising all wg0.conf writes

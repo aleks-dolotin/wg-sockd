@@ -443,6 +443,49 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, responses)
 }
 
+// GetPeer handles GET /api/peers/{id}.
+// Returns a single peer by ID with live wgctrl data merged.
+func (h *Handlers) GetPeer(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "id must be an integer")
+		return
+	}
+
+	peer, err := h.store.GetPeerByID(id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not_found", "peer not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+
+	resp := peerToResponse(*peer)
+
+	// Merge live wgctrl data if available.
+	dev, err := h.wgClient.GetDevice(h.cfg.Interface)
+	if err == nil {
+		for _, wgp := range dev.Peers {
+			if wgp.PublicKey.String() == peer.PublicKey {
+				if wgp.Endpoint != nil {
+					resp.Endpoint = wgp.Endpoint.String()
+				}
+				if !wgp.LastHandshake.IsZero() {
+					resp.LatestHandshake = &wgp.LastHandshake
+				}
+				resp.TransferRx = wgp.ReceiveBytes
+				resp.TransferTx = wgp.TransmitBytes
+				break
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // UpdatePeer handles PUT /api/peers/{id}.
 // Accepts partial updates — only non-nil fields are applied.
 func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {

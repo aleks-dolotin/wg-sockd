@@ -38,6 +38,7 @@ Major improvement to the installation and operational experience. 34 tasks, 15 f
 #### Removed
 
 - **kubectl label block** in install.sh — removed per spec (AC-31)
+- **`RuntimeDirectory=wg-sockd`** in systemd unit — removed to keep directory inode stable for Kubernetes hostPath mounts. The agent creates `/run/wg-sockd/` on startup and cleans up stale sockets itself.
 
 #### Security
 

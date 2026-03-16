@@ -4,6 +4,7 @@ import {
   fetchPeer,
   fetchProfiles,
   fetchStats,
+  fetchHealth,
   fetchConnectionStatus,
 } from './client'
 
@@ -33,15 +34,20 @@ export function useStats() {
   return useQuery({
     queryKey: ['stats'],
     queryFn: fetchStats,
-    refetchInterval: 15_000, // stats refresh more frequently
+    refetchInterval: 15_000,
   })
 }
 
 export function useConnectionStatus() {
   return useQuery({
     queryKey: ['connectionStatus'],
-    queryFn: fetchConnectionStatus,
-    refetchInterval: 5_000, // match Go proxy health-check interval
+    queryFn: async () => {
+      // Use /api/health as the source of truth for connection status.
+      // Works in all modes: dev, embedded UI, and behind Go proxy.
+      const health = await fetchHealth()
+      return { state: health.status === 'ok' || health.status === 'degraded' ? 'connected' : 'disconnected' }
+    },
+    refetchInterval: 5_000,
     retry: false,
   })
 }

@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// friendlyNameRe allows alphanumeric, spaces, hyphens, underscores, dots, apostrophes, parentheses.
-var friendlyNameRe = regexp.MustCompile(`^[a-zA-Z0-9 \-_.,'()]+$`)
+// friendlyNameRe allows Unicode letters, digits, spaces, hyphens, underscores, dots, apostrophes, parentheses.
+var friendlyNameRe = regexp.MustCompile(`^[\p{L}\p{N} \-_.,'()]+$`)
 
 const (
 	// MaxFriendlyNameLen is the maximum allowed length for friendly_name.

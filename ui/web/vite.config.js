@@ -2,6 +2,20 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import http from 'node:http'
+
+const socketPath = process.env.WG_SOCKD_SOCKET
+
+function socketProxyConfig() {
+  if (!socketPath) {
+    return { target: 'http://localhost:8080', changeOrigin: true }
+  }
+  const agent = new http.Agent({ socketPath })
+  return {
+    target: 'http://localhost',
+    agent,
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,11 +27,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Dev mode: proxy API calls to the Go proxy (or agent directly)
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
+      '/api': socketProxyConfig(),
+      '/ui': socketProxyConfig(),
     },
   },
 })

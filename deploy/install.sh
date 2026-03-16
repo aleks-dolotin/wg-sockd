@@ -362,10 +362,13 @@ fi
 info "Creating directories..."
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
+mkdir -p "$RUN_DIR"
 
 # Set ownership
 chown "${USER_NAME}:${GROUP_NAME}" "$DATA_DIR"
 chmod 0750 "$DATA_DIR"
+chown "${USER_NAME}:${GROUP_NAME}" "$RUN_DIR"
+chmod 0750 "$RUN_DIR"
 
 # --- Task 5.8 + 5.9: Config — upgrade path or fresh install ---
 if [ -f "${CONFIG_DIR}/config.yaml" ]; then
@@ -448,7 +451,6 @@ ExecStart=/usr/local/bin/wg-sockd --config /etc/wg-sockd/config.yaml
 Restart=on-failure
 RestartSec=2
 WatchdogSec=30
-RuntimeDirectory=wg-sockd
 StateDirectory=wg-sockd
 ConfigurationDirectory=wg-sockd
 ProtectSystem=strict
@@ -491,7 +493,7 @@ echo "  Socket:  ${RUN_DIR}/${BINARY_NAME}.sock"
 echo "  Service: systemctl status ${SERVICE_NAME}"
 echo ""
 echo "  Quick test:"
-echo "    curl --unix-socket ${RUN_DIR}/${BINARY_NAME}.sock http://localhost/api/health"
+echo "    sudo curl --unix-socket ${RUN_DIR}/${BINARY_NAME}.sock http://localhost/api/health"
 echo ""
 
 # Show UI URL only in default mode (AC-22: no URL for agent-only).
@@ -512,5 +514,10 @@ echo "    ${BINARY_NAME} --config ${CONFIG_DIR}/config.yaml --dry-run"
 if [ -f "${INSTALL_DIR}/${CTL_BINARY_NAME}" ]; then
     echo "    ${CTL_BINARY_NAME} --version"
 fi
+echo ""
+echo "  Socket access requires root or membership in the wg-sockd group."
+echo "  To allow your user to access the socket without sudo:"
+echo "    sudo usermod -aG wg-sockd \$USER"
+echo "  Then re-login for the group change to take effect."
 echo ""
 
