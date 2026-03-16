@@ -1,9 +1,10 @@
 # wg-sockd agent configuration
 interface: wg0
-socket_path: /var/run/wg-sockd/wg-sockd.sock
+socket_path: /run/wg-sockd/wg-sockd.sock
 db_path: /var/lib/wg-sockd/wg-sockd.db
 conf_path: /etc/wireguard/wg0.conf
 auto_approve_unknown: false
 peer_limit: 250
 reconcile_interval: 30s
+rate_limit: 10  # max requests/second per connection (0 = disabled)
 # external_endpoint: "vpn.example.com:51820"  # used in client .conf and QR codes

@@ -45,6 +45,12 @@ func (db *DB) BackupLoop(ctx context.Context, dbPath string, initialDelay time.D
 
 // Backup creates a consistent backup of the database at dbPath → dbPath.bak.
 // Performs a WAL checkpoint before copying to ensure consistency.
+//
+// Design decision: We use TRUNCATE (blocking) rather than PASSIVE (non-blocking)
+// because PASSIVE may leave uncheckpointed WAL pages, leading to an inconsistent
+// backup. The TRUNCATE checkpoint blocks writers for ~50–100ms once per hour,
+// which is acceptable for a single-instance daemon. If concurrent write latency
+// becomes a concern, consider PASSIVE + sqlite3_backup API instead.
 func (db *DB) Backup(dbPath string) error {
 	// WAL checkpoint to flush pending writes.
 	if _, err := db.conn.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
@@ -129,6 +135,7 @@ func RecoverDB(dbPath string, confPath string, parseComments func(string) (map[s
 			if err != nil {
 				log.Printf("WARN: failed to create fresh DB for conf recovery: %v", err)
 			} else {
+				var recovered int
 				for pubKey, pm := range meta {
 					name := pm.Name
 					if name == "" {
@@ -138,11 +145,20 @@ func RecoverDB(dbPath string, confPath string, parseComments func(string) (map[s
 						}
 						name = "recovered-" + short
 					}
-					_ = newDB.InsertRecoveredPeer(pubKey, name, pm.Notes)
+					if err := newDB.InsertRecoveredPeer(pubKey, name, pm.Notes); err != nil {
+						log.Printf("WARN: failed to recover peer %s: %v", pubKey[:8], err)
+					} else {
+						recovered++
+					}
 				}
 				newDB.Close()
-				log.Println("WARN: recovered from conf comments (profile assignments lost, metadata preserved)")
-				return "conf", nil
+				log.Printf("INFO: recovered %d of %d peers from conf comments", recovered, len(meta))
+				if recovered > 0 {
+					log.Println("WARN: recovered from conf comments (profile assignments lost, metadata preserved)")
+					return "conf", nil
+				}
+				// All inserts failed — fall through to Level 3.
+				log.Println("WARN: all peer inserts failed during conf recovery, falling through to clean start")
 			}
 		}
 	}
@@ -177,11 +193,13 @@ func isDBHealthy(dbPath string) bool {
 }
 
 // InsertRecoveredPeer inserts a peer recovered from conf comments.
+// Uses explicit UTC timestamp to avoid timezone mismatch with Go code.
 func (db *DB) InsertRecoveredPeer(pubKey, friendlyName, notes string) error {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	_, err := db.conn.Exec(
 		`INSERT OR IGNORE INTO peers (public_key, friendly_name, allowed_ips, enabled, auto_discovered, notes, created_at)
-		 VALUES (?, ?, '[]', 1, 0, ?, datetime('now'))`,
-		pubKey, friendlyName, notes,
+		 VALUES (?, ?, '[]', 1, 0, ?, ?)`,
+		pubKey, friendlyName, notes, now,
 	)
 	return err
 }

@@ -38,7 +38,7 @@ type Config struct {
 func Defaults() *Config {
 	return &Config{
 		Interface:          "wg0",
-		SocketPath:         "/var/run/wg-sockd/wg-sockd.sock",
+		SocketPath:         "/run/wg-sockd/wg-sockd.sock",
 		DBPath:             "/var/lib/wg-sockd/wg-sockd.db",
 		ConfPath:           "/etc/wireguard/wg0.conf",
 		ListenAddr:         "",

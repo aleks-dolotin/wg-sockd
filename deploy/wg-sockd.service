@@ -17,7 +17,7 @@ StateDirectory=wg-sockd
 ConfigurationDirectory=wg-sockd
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/etc/wireguard /var/lib/wg-sockd /var/run/wg-sockd
+ReadWritePaths=/etc/wireguard /var/lib/wg-sockd /run/wg-sockd
 NoNewPrivileges=yes
 
 [Install]

@@ -74,7 +74,7 @@ func newTestHandlers(t *testing.T) (*Handlers, *storage.DB) {
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
 
 	mock := &mockWgClient{}
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
 	return h, db
 }
 
@@ -200,7 +200,7 @@ func TestListPeers_JoinsLiveData(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
 	router := NewRouter(h)
 
 	req := httptest.NewRequest("GET", "/api/peers", nil)
@@ -706,7 +706,7 @@ func TestStats_WithPeers(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
 	router := NewRouter(h)
 
 	req := httptest.NewRequest("GET", "/api/stats", nil)

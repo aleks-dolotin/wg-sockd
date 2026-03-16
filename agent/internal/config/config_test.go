@@ -14,8 +14,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.Interface != "wg0" {
 		t.Errorf("Interface: got %q, want %q", cfg.Interface, "wg0")
 	}
-	if cfg.SocketPath != "/var/run/wg-sockd/wg-sockd.sock" {
-		t.Errorf("SocketPath: got %q, want %q", cfg.SocketPath, "/var/run/wg-sockd/wg-sockd.sock")
+	if cfg.SocketPath != "/run/wg-sockd/wg-sockd.sock" {
+		t.Errorf("SocketPath: got %q, want %q", cfg.SocketPath, "/run/wg-sockd/wg-sockd.sock")
 	}
 	if cfg.DBPath != "/var/lib/wg-sockd/wg-sockd.db" {
 		t.Errorf("DBPath: got %q, want %q", cfg.DBPath, "/var/lib/wg-sockd/wg-sockd.db")
@@ -130,7 +130,7 @@ func TestLoadConfig_PartialYAML(t *testing.T) {
 		t.Errorf("Interface: got %q, want %q", cfg.Interface, "wg2")
 	}
 	// Defaults preserved for unspecified fields
-	if cfg.SocketPath != "/var/run/wg-sockd/wg-sockd.sock" {
+	if cfg.SocketPath != "/run/wg-sockd/wg-sockd.sock" {
 		t.Errorf("SocketPath should keep default, got %q", cfg.SocketPath)
 	}
 	if cfg.PeerLimit != 250 {

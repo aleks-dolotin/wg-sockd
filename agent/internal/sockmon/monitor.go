@@ -20,12 +20,12 @@ type Monitor struct {
 	handler    http.Handler
 	connCtx    func(ctx context.Context, c net.Conn) context.Context
 
-	mu       sync.Mutex
-	listener net.Listener
-	server   *http.Server
+	mu         sync.Mutex
+	listener   net.Listener
+	server     *http.Server
+	recreating bool // guards against double recreate from concurrent ticks
 
-	// nowFunc and statFunc are injectable for testing.
-	nowFunc  func() time.Time
+	// statFunc is injectable for testing.
 	statFunc func(string) (os.FileInfo, error)
 }
 
@@ -35,7 +35,6 @@ func New(socketPath string, handler http.Handler, connCtx func(ctx context.Conte
 		socketPath: socketPath,
 		handler:    handler,
 		connCtx:    connCtx,
-		nowFunc:    time.Now,
 		statFunc:   os.Stat,
 	}
 }
@@ -83,6 +82,14 @@ func (m *Monitor) RunMonitor(ctx context.Context) {
 }
 
 func (m *Monitor) check() {
+	// Skip if a recreate is already in progress (Finding 2 — race guard).
+	m.mu.Lock()
+	if m.recreating {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
 	fi, err := m.statFunc(m.socketPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -112,6 +119,9 @@ func (m *Monitor) check() {
 func (m *Monitor) recreate() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.recreating = true
+	defer func() { m.recreating = false }()
 
 	// Close existing server — this causes the old Serve goroutine to return.
 	if m.server != nil {

@@ -169,8 +169,32 @@ func main() {
 	diskChecker := health.NewDiskChecker(filepath.Dir(cfg.DBPath), health.DefaultDiskThreshold)
 	go diskChecker.RunLoop(ctx.Done())
 
-	// 6. Create handlers + router with rate limiting and read-only guard.
-	handlers := api.NewHandlers(wgClient, db, cfg, cw, rec)
+	// 6a. Create DebouncedWriter wrapping SharedWriter (Story 5.3).
+	// getPeers callback fetches current enabled peers at flush time.
+	dw := confwriter.NewDebouncedWriter(cw, cfg.ConfPath, 100*time.Millisecond, func() []confwriter.PeerConf {
+		dbPeers, err := db.ListPeers()
+		if err != nil {
+			log.Printf("ERROR: debounced getPeers failed: %v", err)
+			return nil
+		}
+		peers := make([]confwriter.PeerConf, 0, len(dbPeers))
+		for _, p := range dbPeers {
+			if !p.Enabled {
+				continue
+			}
+			peers = append(peers, confwriter.PeerConf{
+				PublicKey:    p.PublicKey,
+				AllowedIPs:   p.AllowedIPs,
+				FriendlyName: p.FriendlyName,
+				CreatedAt:    p.CreatedAt,
+				Notes:        p.Notes,
+			})
+		}
+		return peers
+	})
+
+	// 6b. Create handlers + router with rate limiting and read-only guard.
+	handlers := api.NewHandlers(wgClient, db, cfg, cw, dw, rec)
 	var rl *middleware.RateLimiter
 	if cfg.RateLimit > 0 {
 		rl = middleware.NewRateLimiter(float64(cfg.RateLimit), cfg.RateLimit)
@@ -178,37 +202,37 @@ func main() {
 	}
 	mux := api.NewRateLimitedRouter(handlers, rl, diskChecker)
 
-	// 6. Remove stale socket.
+	// 7. Remove stale socket.
 	if err := os.Remove(cfg.SocketPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("WARNING: removing stale socket: %v", err)
 	}
 
-	// 7. Create socket directory.
+	// 8. Create socket directory.
 	if err := os.MkdirAll(filepath.Dir(cfg.SocketPath), 0750); err != nil {
 		log.Fatalf("FATAL: creating socket directory: %v", err)
 	}
 
-	// 8-13. Create socket monitor with self-healing (FM-3).
+	// 9. Create socket monitor with self-healing (FM-3).
 	sm := sockmon.New(cfg.SocketPath, mux, middleware.ConnContext)
 	if err := sm.Start(); err != nil {
 		log.Fatalf("FATAL: starting socket server: %v", err)
 	}
 
-	// 13a. Start socket self-healing monitor goroutine.
+	// 9a. Start socket self-healing monitor goroutine.
 	go sm.RunMonitor(ctx)
 
-	// 11. sd_notify ready.
+	// 10. sd_notify ready.
 	if ok, err := daemon.SdNotify(false, daemon.SdNotifyReady); err != nil {
 		log.Printf("sd_notify error (ok if not under systemd): %v", err)
 	} else if ok {
 		log.Println("sd_notify: READY=1 sent")
 	}
 
-	// 12. Start watchdog goroutine.
+	// 11. Start watchdog goroutine.
 	go watchdogLoop(ctx)
 
 
-	// 13b. Optional: TCP listener for embedded UI mode.
+	// 12. Optional: TCP listener for embedded UI mode.
 	var tcpServer *http.Server
 	if *serveUI || *serveUIDir != "" {
 		uiMux := http.NewServeMux()
@@ -275,24 +299,36 @@ func main() {
 		}()
 	}
 
-	// Shutdown goroutine.
+	// Shutdown goroutine — signals completion via shutdownDone channel.
+	shutdownDone := make(chan struct{})
 	go func() {
 		<-ctx.Done()
 		log.Println("Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
+		// Flush pending debounced conf writes before closing servers.
+		dw.Close()
+
 		sm.Shutdown(shutdownCtx)
 		if tcpServer != nil {
 			tcpServer.Shutdown(shutdownCtx)
 		}
+
+		// Stop rate limiter cleanup goroutine (Finding 1).
+		if rl != nil {
+			rl.Close()
+		}
+
+		close(shutdownDone)
 	}()
 
 	// Block until context is cancelled (signal received).
 	log.Println("wg-sockd ready")
 	<-ctx.Done()
 
-	// Give shutdown goroutine time to finish.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for shutdown goroutine to complete (Finding 3 — replaces time.Sleep hack).
+	<-shutdownDone
 	log.Println("wg-sockd stopped")
 }
 

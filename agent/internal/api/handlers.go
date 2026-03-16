@@ -33,8 +33,9 @@ type Handlers struct {
 	wgClient   wireguard.WireGuardClient
 	store      *storage.DB
 	cfg        *config.Config
-	confWriter *confwriter.SharedWriter // serialises wg0.conf writes shared with Reconciler
-	reconciler ReconcilerPauser        // paused during BatchCreatePeers to avoid race
+	confWriter *confwriter.SharedWriter    // serialises wg0.conf writes shared with Reconciler
+	debouncer  *confwriter.DebouncedWriter // coalesces rapid conf writes (Story 5.3)
+	reconciler ReconcilerPauser            // paused during BatchCreatePeers to avoid race
 }
 
 // NewHandlers creates a new Handlers instance.
@@ -43,6 +44,7 @@ func NewHandlers(
 	store *storage.DB,
 	cfg *config.Config,
 	confWriter *confwriter.SharedWriter,
+	debouncer *confwriter.DebouncedWriter,
 	reconciler ReconcilerPauser,
 ) *Handlers {
 	return &Handlers{
@@ -50,6 +52,7 @@ func NewHandlers(
 		store:      store,
 		cfg:        cfg,
 		confWriter: confWriter,
+		debouncer:  debouncer,
 		reconciler: reconciler,
 	}
 }
@@ -574,11 +577,9 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rewrite conf if network config changed.
+	// Rewrite conf if network config changed (debounced — non-critical).
 	if needsWgUpdate {
-		if err := h.rewriteConf(); err != nil {
-			log.Printf("WARNING: conf write failed: %v", err)
-		}
+		h.notifyConfChange()
 	}
 
 	// Re-read and return updated peer.
@@ -841,10 +842,8 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARNING: wgctrl configure failed during approve: %v", err)
 	}
 
-	// Rewrite conf.
-	if err := h.rewriteConf(); err != nil {
-		log.Printf("WARNING: conf write failed during approve: %v", err)
-	}
+	// Rewrite conf (debounced — non-critical).
+	h.notifyConfChange()
 
 	// Re-read and return.
 	updated, err := h.store.GetPeerByID(id)
@@ -892,10 +891,8 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rewrite conf.
-	if err := h.rewriteConf(); err != nil {
-		log.Printf("WARNING: conf write failed: %v", err)
-	}
+	// Rewrite conf (debounced — non-critical).
+	h.notifyConfChange()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1086,11 +1083,38 @@ func (h *Handlers) serverEndpoint(listenPort int) string {
 }
 
 // rewriteConf rewrites the WireGuard conf file from current DB state.
-// File serialisation is handled by SharedWriter (shared with Reconciler).
+// Uses DirectWrite to bypass debounce — the caller needs a synchronous
+// result for rollback logic. Also cancels any pending debounced write.
 func (h *Handlers) rewriteConf() error {
-	dbPeers, err := h.store.ListPeers()
+	peers, err := h.buildPeerConfs()
 	if err != nil {
 		return err
+	}
+	if h.debouncer != nil {
+		return h.debouncer.DirectWrite(peers)
+	}
+	return h.confWriter.WriteConf(h.cfg.ConfPath, peers)
+}
+
+// notifyConfChange signals a non-critical conf mutation that can be
+// coalesced with other writes within the debounce window (Story 5.3).
+// If the debouncer is not configured, falls back to a synchronous write.
+func (h *Handlers) notifyConfChange() {
+	if h.debouncer != nil {
+		h.debouncer.Notify()
+		return
+	}
+	// Fallback: synchronous write (pre-debounce behaviour).
+	if err := h.rewriteConf(); err != nil {
+		log.Printf("WARNING: conf write failed: %v", err)
+	}
+}
+
+// buildPeerConfs reads enabled peers from the DB and returns conf entries.
+func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
+	dbPeers, err := h.store.ListPeers()
+	if err != nil {
+		return nil, err
 	}
 
 	peers := make([]confwriter.PeerConf, 0, len(dbPeers))
@@ -1106,8 +1130,7 @@ func (h *Handlers) rewriteConf() error {
 			Notes:        p.Notes,
 		})
 	}
-
-	return h.confWriter.WriteConf(h.cfg.ConfPath, peers)
+	return peers, nil
 }
 
 // peerToResponse converts a storage Peer to an API PeerResponse.

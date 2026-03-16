@@ -4,10 +4,11 @@
 set -euo pipefail
 
 BINARY_NAME="wg-sockd"
+CTL_BINARY_NAME="wg-sockd-ctl"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/wg-sockd"
 DATA_DIR="/var/lib/wg-sockd"
-RUN_DIR="/var/run/wg-sockd"
+RUN_DIR="/run/wg-sockd"
 SERVICE_NAME="wg-sockd"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 GROUP_NAME="wg-sockd"
@@ -51,6 +52,12 @@ if [ -f "${INSTALL_DIR}/${BINARY_NAME}" ]; then
     info "Removed binary"
 else
     info "Binary not found — skipping"
+fi
+
+# --- Remove CTL binary ---
+if [ -f "${INSTALL_DIR}/${CTL_BINARY_NAME}" ]; then
+    rm -f "${INSTALL_DIR}/${CTL_BINARY_NAME}"
+    info "Removed CTL binary"
 fi
 
 # --- Remove socket ---

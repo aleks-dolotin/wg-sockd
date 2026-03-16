@@ -48,6 +48,7 @@ type RateLimiter struct {
 	mu      sync.Mutex
 	buckets map[int64]*bucket
 	nowFunc func() time.Time // injectable for testing
+	done    chan struct{}     // signals cleanup goroutine to stop
 }
 
 // NewRateLimiter creates a per-connection rate limiter.
@@ -59,6 +60,7 @@ func NewRateLimiter(rate float64, burst int) *RateLimiter {
 		burst:   burst,
 		buckets: make(map[int64]*bucket),
 		nowFunc: time.Now,
+		done:    make(chan struct{}),
 	}
 	go rl.cleanup()
 	return rl
@@ -95,18 +97,34 @@ func (rl *RateLimiter) allow(connID int64) bool {
 }
 
 // cleanup removes stale buckets every 60 seconds to prevent unbounded memory growth.
+// Exits when the done channel is closed via Close().
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		now := rl.nowFunc()
-		for id, b := range rl.buckets {
-			if now.Sub(b.lastCheck) > 5*time.Minute {
-				delete(rl.buckets, id)
+	for {
+		select {
+		case <-rl.done:
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := rl.nowFunc()
+			for id, b := range rl.buckets {
+				if now.Sub(b.lastCheck) > 5*time.Minute {
+					delete(rl.buckets, id)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
+	}
+}
+
+// Close stops the background cleanup goroutine. Safe to call multiple times.
+func (rl *RateLimiter) Close() {
+	select {
+	case <-rl.done:
+		// already closed
+	default:
+		close(rl.done)
 	}
 }
 
