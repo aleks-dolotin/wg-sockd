@@ -87,18 +87,13 @@ func TestMonitor_DetectDeletedSocket(t *testing.T) {
 	// Run monitor check — should re-create.
 	m.check()
 
-	// Poll for socket re-creation (CI runners can be slow).
-	var fi os.FileInfo
-	var statErr error
-	for i := 0; i < 50; i++ {
-		time.Sleep(50 * time.Millisecond)
-		fi, statErr = os.Stat(sockPath)
-		if statErr == nil {
-			break
-		}
-	}
+	// createSocket inside recreate() is synchronous — socket file should
+	// exist immediately after check() returns. Add a small sleep only for
+	// the Serve goroutine to start accepting connections.
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify socket file re-created.
+	fi, statErr := os.Stat(sockPath)
 	if statErr != nil {
 		t.Fatalf("socket should be re-created: %v", statErr)
 	}
