@@ -128,15 +128,19 @@ For K8s deployments, the agent runs on the host (headless, no UI) and a separate
 
 ### 1. Label the Node
 
-The UI proxy pod uses `nodeSelector` to land on the node where the agent's Unix socket lives. Label that node first:
+The UI proxy pod uses `nodeSelector` to land on the node where the agent's Unix socket lives. First, find your node name:
 
 ```bash
-# Find the node name where WireGuard is running
 kubectl get nodes
-
-# Label it
-kubectl label node <node-name> wg-sockd=active
 ```
+
+Then label the node where WireGuard is running:
+
+```bash
+kubectl label node MY_NODE_NAME wg-sockd=active
+```
+
+Replace `MY_NODE_NAME` with the actual name from the output above.
 
 ### 2. Install Agent on Node
 
