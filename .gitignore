@@ -11,6 +11,7 @@ _bmad-output/
 
 # Build artifacts
 bin/
+tmp/
 agent/wg-sockd
 spike/spike-local
 spike/spike-arm64

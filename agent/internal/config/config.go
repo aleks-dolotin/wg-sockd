@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -32,6 +33,8 @@ type Config struct {
 	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
 	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
 	RateLimit          int                  `yaml:"rate_limit"`
+	ServeUI            bool                 `yaml:"serve_ui"`
+	UIListen           string               `yaml:"ui_listen"`
 }
 
 // Defaults returns a Config populated with default values.
@@ -46,6 +49,8 @@ func Defaults() *Config {
 		PeerLimit:          250,
 		ReconcileInterval:  30 * time.Second,
 		RateLimit:          10,
+		ServeUI:            false,
+		UIListen:           "127.0.0.1:8080",
 	}
 }
 
@@ -79,4 +84,73 @@ func (c *Config) ApplyFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.ConfPath, "conf-path", c.ConfPath, "WireGuard config file path")
 	fs.StringVar(&c.ListenAddr, "listen-addr", c.ListenAddr, "HTTP listen address (for standalone UI mode)")
 	fs.BoolVar(&c.AutoApproveUnknown, "auto-approve-unknown", c.AutoApproveUnknown, "Auto-approve unknown peers found in kernel")
+	fs.BoolVar(&c.ServeUI, "serve-ui", c.ServeUI, "serve embedded UI on TCP (requires embed_ui build tag)")
+	fs.StringVar(&c.UIListen, "ui-listen", c.UIListen, "TCP listen address for UI mode")
+}
+
+// ApplyEnv reads environment variables and overrides matching Config fields in-place.
+// Returns a map keyed by ENV VAR NAME for each override applied, and an error if
+// any env var has an invalid value. Bool validation uses strconv.ParseBool
+// (accepts "1"/"t"/"TRUE"/"true"/"True"/"0"/"f"/"FALSE"/"false"/"False").
+func (c *Config) ApplyEnv() (map[string]string, error) {
+	applied := make(map[string]string)
+
+	type envMapping struct {
+		envVar string
+		apply  func(string) error
+	}
+
+	mappings := []envMapping{
+		{"WG_SOCKD_INTERFACE", func(v string) error { c.Interface = v; return nil }},
+		{"WG_SOCKD_SOCKET_PATH", func(v string) error { c.SocketPath = v; return nil }},
+		{"WG_SOCKD_DB_PATH", func(v string) error { c.DBPath = v; return nil }},
+		{"WG_SOCKD_CONF_PATH", func(v string) error { c.ConfPath = v; return nil }},
+		{"WG_SOCKD_LISTEN_ADDR", func(v string) error { c.ListenAddr = v; return nil }},
+		{"WG_SOCKD_AUTO_APPROVE_UNKNOWN", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.AutoApproveUnknown = b
+			return nil
+		}},
+		{"WG_SOCKD_PEER_LIMIT", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid integer value %q", v)
+			}
+			c.PeerLimit = n
+			return nil
+		}},
+		{"WG_SOCKD_RATE_LIMIT", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid integer value %q", v)
+			}
+			c.RateLimit = n
+			return nil
+		}},
+		{"WG_SOCKD_SERVE_UI", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.ServeUI = b
+			return nil
+		}},
+		{"WG_SOCKD_UI_LISTEN", func(v string) error { c.UIListen = v; return nil }},
+	}
+
+	for _, m := range mappings {
+		v, ok := os.LookupEnv(m.envVar)
+		if !ok {
+			continue
+		}
+		if err := m.apply(v); err != nil {
+			return applied, fmt.Errorf("env %s: %w", m.envVar, err)
+		}
+		applied[m.envVar] = v
+	}
+
+	return applied, nil
 }

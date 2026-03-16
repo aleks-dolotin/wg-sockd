@@ -54,29 +54,41 @@ graph LR
 
 The fastest way to get started. One command installs the agent with embedded web UI.
 
+### Prerequisites
+
+- **Linux** — amd64 or arm64
+- **WireGuard** — `wg` and `wg-quick` must be in PATH. Install with:
+  - Ubuntu/Debian: `apt install wireguard-tools`
+  - Fedora: `dnf install wireguard-tools`
+  - Arch: `pacman -S wireguard-tools`
+  - Alpine: `apk add wireguard-tools`
+- **WireGuard interface** — a running `wg0` interface with `[Interface]` section configured in `/etc/wireguard/wg0.conf`
+
 ### 1. Install
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
 ```
 
-This creates the `wg-sockd` user (GID 5000), installs the binary, sets up systemd, and starts the service.
+This creates the `wg-sockd` user (GID 5000), installs the full binary (with embedded UI) + CTL, sets up systemd, and starts the service. The installer will prompt for UI binding address interactively or default to `0.0.0.0:8080` when piped.
 
-### 2. Enable Web UI
-
-```bash
-# Option A: Serve UI from pre-built static files
-sudo systemctl stop wg-sockd
-sudo wg-sockd --config /etc/wg-sockd/config.yaml --serve-ui-dir /opt/wg-sockd/ui/dist
-
-# Option B: Use embedded UI binary (if built with make build-full)
-sudo wg-sockd --config /etc/wg-sockd/config.yaml --serve-ui
-```
-
-### 3. Open Browser
+### 2. Open Browser
 
 ```
 http://your-host:8080
+```
+
+The UI is configured via `serve_ui` and `ui_listen` in `/etc/wg-sockd/config.yaml`.
+
+### 3. Verify Installation
+
+```bash
+# Check version of both binaries
+wg-sockd --version
+wg-sockd-ctl --version
+
+# Validate config and prerequisites
+sudo wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
 ```
 
 ### 4. Create Your First Peer
@@ -107,13 +119,19 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 
 ## Quick Start — Kubernetes
 
-For K8s deployments, the agent runs on the host and a lightweight UI proxy pod connects via hostPath.
+For K8s deployments, the agent runs on the host (headless, no UI) and a separate UI proxy pod connects via hostPath.
 
 ### Prerequisites
 
 - WireGuard running on the target node
-- Agent installed on the node (via `install.sh`)
 - Node labeled: `kubectl label node <node> wg-sockd=active`
+
+### Install Agent on Node
+
+```bash
+# --agent-only installs the lean binary without embedded UI
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
+```
 
 ### Install UI via Helm
 
@@ -408,16 +426,52 @@ The agent listens on a Unix domain socket with restricted permissions:
 
 ---
 
+## Uninstall
+
+```bash
+# Stop and disable service
+sudo systemctl stop wg-sockd
+sudo systemctl disable wg-sockd
+
+# Remove binaries
+sudo rm -f /usr/local/bin/wg-sockd /usr/local/bin/wg-sockd-ctl
+
+# Remove systemd unit
+sudo rm -f /etc/systemd/system/wg-sockd.service
+sudo systemctl daemon-reload
+
+# --purge: also remove config and data (irreversible!)
+sudo rm -rf /etc/wg-sockd /var/lib/wg-sockd
+```
+
+---
+
+## Development
+
+```bash
+# Local dev mode — API-only, runs in degraded mode on macOS
+make dev
+
+# This creates ./tmp/ with isolated config and data.
+# Edit ./tmp/dev-config.yaml to customize (file is preserved across runs).
+# NOTE: WG_SOCKD_* env vars from your shell still apply.
+#       Use `env -u WG_SOCKD_INTERFACE make dev` to isolate.
+
+# make install is the legacy install path — for production, use deploy/install.sh instead.
+```
+
+---
+
 ## Building
 
 ```bash
-# Build lean agent (~15MB)
+# Build lean agent (~15MB) — --version shows commit and date
 make build
 
-# Build agent with embedded UI (~30MB)
+# Build agent with embedded UI (~30MB) — --version shows +ui tag
 make build-full
 
-# Build CLI
+# Build CLI — --version shows commit and date
 make build-ctl
 
 # Run all tests

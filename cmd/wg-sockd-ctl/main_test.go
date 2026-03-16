@@ -221,3 +221,24 @@ func TestUnixClientCreation(t *testing.T) {
 	}
 }
 
+func TestCTLVersionVarsHaveDefaults(t *testing.T) {
+	if version == "" {
+		t.Error("version should not be empty")
+	}
+	if version != "dev" {
+		t.Logf("version = %q (expected 'dev' in test builds)", version)
+	}
+	if commit == "" {
+		t.Error("commit should not be empty")
+	}
+	if buildDate == "" {
+		t.Error("buildDate should not be empty")
+	}
+}
+
+func TestPrintVersion(t *testing.T) {
+	// Just verify it doesn't panic.
+	// In a test environment, version vars have dev defaults.
+	printVersion()
+}
+

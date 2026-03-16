@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 )
 
 func TestSPAHandler(t *testing.T) {
@@ -100,6 +102,113 @@ func TestFsSubNilCheck(t *testing.T) {
 	var nilFS *fs.FS
 	if nilFS != nil {
 		t.Error("nil FS should be nil")
+	}
+}
+
+func TestVersionVarsHaveDefaults(t *testing.T) {
+	// In test builds (no ldflags), version variables should have their dev defaults.
+	if version == "" {
+		t.Error("version should not be empty")
+	}
+	if version != "dev" {
+		// Not a hard failure — ldflags may have been set. Just verify non-empty.
+		t.Logf("version = %q (expected 'dev' in test builds)", version)
+	}
+	if commit == "" {
+		t.Error("commit should not be empty")
+	}
+	if buildDate == "" {
+		t.Error("buildDate should not be empty")
+	}
+	// buildTags can be empty — that's fine for lean builds.
+}
+
+func TestDryRun_ValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "data")
+	os.MkdirAll(dbDir, 0750)
+	sockDir := filepath.Join(dir, "run")
+	os.MkdirAll(sockDir, 0750)
+	confPath := filepath.Join(dir, "wg0.conf")
+	os.WriteFile(confPath, []byte("[Interface]\n"), 0644)
+
+	cfg := &config.Config{
+		Interface: "wg0",
+		SocketPath: filepath.Join(sockDir, "test.sock"),
+		DBPath:     filepath.Join(dbDir, "test.db"),
+		ConfPath:   confPath,
+		UIListen:   "127.0.0.1:8080",
+		PeerLimit:  250,
+	}
+
+	code := runDryRun(cfg)
+	if code != 0 {
+		t.Errorf("expected exit code 0 for valid config, got %d", code)
+	}
+}
+
+func TestDryRun_InvalidUIListen(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "data")
+	os.MkdirAll(dbDir, 0750)
+
+	cfg := &config.Config{
+		Interface:  "wg0",
+		SocketPath: filepath.Join(dir, "test.sock"),
+		DBPath:     filepath.Join(dbDir, "test.db"),
+		ConfPath:   "/nonexistent/wg0.conf",
+		ServeUI:    true,
+		UIListen:   "not-valid",
+		PeerLimit:  250,
+	}
+
+	code := runDryRun(cfg)
+	if code != 1 {
+		t.Errorf("expected exit code 1 for invalid ui_listen, got %d", code)
+	}
+}
+
+func TestDryRun_MissingDataDir(t *testing.T) {
+	cfg := &config.Config{
+		Interface:  "wg0",
+		SocketPath: "/nonexistent-sock-dir/test.sock",
+		DBPath:     "/nonexistent-data-dir/test.db",
+		ConfPath:   "/nonexistent/wg0.conf",
+		UIListen:   "127.0.0.1:8080",
+		PeerLimit:  250,
+	}
+
+	// Should warn (⚠️) but not fail fatally for non-existent dirs.
+	code := runDryRun(cfg)
+	// Exit code 0: non-existent dirs are warnings not errors.
+	if code != 0 {
+		t.Errorf("expected exit code 0 for missing dirs (warnings only), got %d", code)
+	}
+}
+
+func TestDryRun_NotWritableDataDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
+
+	dir := t.TempDir()
+	readOnlyDir := filepath.Join(dir, "readonly")
+	os.MkdirAll(readOnlyDir, 0500)
+	// Ensure cleanup can remove it.
+	t.Cleanup(func() { os.Chmod(readOnlyDir, 0700) })
+
+	cfg := &config.Config{
+		Interface:  "wg0",
+		SocketPath: filepath.Join(dir, "test.sock"),
+		DBPath:     filepath.Join(readOnlyDir, "test.db"),
+		ConfPath:   "/nonexistent/wg0.conf",
+		UIListen:   "127.0.0.1:8080",
+		PeerLimit:  250,
+	}
+
+	code := runDryRun(cfg)
+	if code != 1 {
+		t.Errorf("expected exit code 1 for not-writable dir, got %d", code)
 	}
 }
 

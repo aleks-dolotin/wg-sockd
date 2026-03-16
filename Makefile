@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui
+.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui dev
 
 BINARY := wg-sockd
 BIN_DIR := bin
@@ -6,9 +6,17 @@ INSTALL_DIR := /usr/local/bin
 CONFIG_DIR := /etc/wg-sockd
 SERVICE_FILE := /etc/systemd/system/wg-sockd.service
 
+# Version info injected at build time
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+AGENT_LDFLAGS := -ldflags="-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
+AGENT_LDFLAGS_UI := -ldflags="-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE) -X main.buildTags=ui"
+CTL_LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
+
 # Build the agent binary
 build:
-	cd agent && go build -o ../$(BIN_DIR)/$(BINARY) ./cmd/wg-sockd/
+	cd agent && go build $(AGENT_LDFLAGS) -o ../$(BIN_DIR)/$(BINARY) ./cmd/wg-sockd/
 	@echo "Built $(BIN_DIR)/$(BINARY)"
 
 # Run all tests
@@ -65,7 +73,7 @@ ui:
 build-full: ui
 	rm -rf agent/cmd/wg-sockd/ui_dist
 	cp -r ui/web/dist agent/cmd/wg-sockd/ui_dist
-	cd agent && go build -tags embed_ui -o ../$(BIN_DIR)/$(BINARY)-full ./cmd/wg-sockd/
+	cd agent && go build -tags embed_ui $(AGENT_LDFLAGS_UI) -o ../$(BIN_DIR)/$(BINARY)-full ./cmd/wg-sockd/
 	@echo "Built $(BIN_DIR)/$(BINARY)-full (with embedded UI)"
 
 # Build UI Docker image
@@ -78,7 +86,7 @@ test-ui:
 
 # Build wg-sockd-ctl CLI binary
 build-ctl:
-	cd cmd/wg-sockd-ctl && CGO_ENABLED=0 go build -ldflags="-s -w" -o ../../$(BIN_DIR)/wg-sockd-ctl .
+	cd cmd/wg-sockd-ctl && CGO_ENABLED=0 go build $(CTL_LDFLAGS) -o ../../$(BIN_DIR)/wg-sockd-ctl .
 	@echo "Built $(BIN_DIR)/wg-sockd-ctl"
 
 # Run CLI tests
@@ -87,4 +95,20 @@ test-ctl:
 
 # Run all tests across all modules
 test-all: test test-ui test-ctl
+
+# Local development mode — API-only, no WireGuard needed (macOS degraded OK).
+# Uses ./tmp/ for isolated dev config and data.
+# NOTE: Environment variables (WG_SOCKD_*) from your shell will still apply.
+#       Use `env -u WG_SOCKD_INTERFACE ... make dev` to isolate fully.
+dev: build
+	@mkdir -p ./tmp
+	@chmod 700 ./tmp
+	@if [ -f ./tmp/dev-config.yaml ]; then \
+		echo "Using existing dev config (delete ./tmp/dev-config.yaml to regenerate)"; \
+	else \
+		echo "Generating dev config in ./tmp/dev-config.yaml"; \
+		printf 'interface: wg0\nsocket_path: ./tmp/wg-sockd.sock\ndb_path: ./tmp/wg-sockd.db\nconf_path: ./tmp/wg0.conf\nauto_approve_unknown: false\npeer_limit: 250\nreconcile_interval: 30s\nrate_limit: 10\n' > ./tmp/dev-config.yaml; \
+	fi
+	@touch ./tmp/wg0.conf
+	./$(BIN_DIR)/$(BINARY) --config ./tmp/dev-config.yaml
 

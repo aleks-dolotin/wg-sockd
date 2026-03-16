@@ -242,3 +242,145 @@ func TestApplyFlags(t *testing.T) {
 		t.Errorf("DBPath should keep default, got %q", cfg.DBPath)
 	}
 }
+
+// --- New tests for ServeUI, UIListen, and ApplyEnv ---
+
+func TestDefaults_ServeUIAndUIListen(t *testing.T) {
+	cfg := Defaults()
+	if cfg.ServeUI != false {
+		t.Errorf("ServeUI: got %v, want false", cfg.ServeUI)
+	}
+	if cfg.UIListen != "127.0.0.1:8080" {
+		t.Errorf("UIListen: got %q, want %q", cfg.UIListen, "127.0.0.1:8080")
+	}
+}
+
+func TestLoadConfig_ServeUIAndUIListen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `interface: wg0
+serve_ui: true
+ui_listen: "0.0.0.0:9090"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.ServeUI != true {
+		t.Errorf("ServeUI: got %v, want true", cfg.ServeUI)
+	}
+	if cfg.UIListen != "0.0.0.0:9090" {
+		t.Errorf("UIListen: got %q, want %q", cfg.UIListen, "0.0.0.0:9090")
+	}
+}
+
+func TestApplyEnv_StringOverrides(t *testing.T) {
+	t.Setenv("WG_SOCKD_INTERFACE", "wg2")
+	t.Setenv("WG_SOCKD_UI_LISTEN", "10.0.0.1:9090")
+
+	cfg := Defaults()
+	applied, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Interface != "wg2" {
+		t.Errorf("Interface: got %q, want %q", cfg.Interface, "wg2")
+	}
+	if cfg.UIListen != "10.0.0.1:9090" {
+		t.Errorf("UIListen: got %q, want %q", cfg.UIListen, "10.0.0.1:9090")
+	}
+	if len(applied) != 2 {
+		t.Errorf("applied map length: got %d, want 2", len(applied))
+	}
+}
+
+func TestApplyEnv_BoolOverride(t *testing.T) {
+	t.Setenv("WG_SOCKD_SERVE_UI", "true")
+
+	cfg := Defaults()
+	applied, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.ServeUI != true {
+		t.Errorf("ServeUI: got %v, want true", cfg.ServeUI)
+	}
+	if _, ok := applied["WG_SOCKD_SERVE_UI"]; !ok {
+		t.Error("expected WG_SOCKD_SERVE_UI in applied map")
+	}
+}
+
+func TestApplyEnv_BoolParseBoolVariants(t *testing.T) {
+	// strconv.ParseBool accepts "1", "t", "T", "TRUE", "true", "True", etc.
+	variants := []string{"1", "t", "T", "TRUE", "true", "True"}
+	for _, v := range variants {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("WG_SOCKD_SERVE_UI", v)
+			cfg := Defaults()
+			_, err := cfg.ApplyEnv()
+			if err != nil {
+				t.Fatalf("ParseBool should accept %q: %v", v, err)
+			}
+			if cfg.ServeUI != true {
+				t.Errorf("ServeUI: got %v, want true for input %q", cfg.ServeUI, v)
+			}
+		})
+	}
+}
+
+func TestApplyEnv_InvalidBool(t *testing.T) {
+	t.Setenv("WG_SOCKD_SERVE_UI", "invalid")
+
+	cfg := Defaults()
+	_, err := cfg.ApplyEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid boolean, got nil")
+	}
+}
+
+func TestApplyEnv_NoEnvVars(t *testing.T) {
+	// Ensure none of our env vars are set.
+	for _, key := range []string{"WG_SOCKD_INTERFACE", "WG_SOCKD_SOCKET_PATH", "WG_SOCKD_SERVE_UI", "WG_SOCKD_UI_LISTEN"} {
+		os.Unsetenv(key)
+	}
+
+	cfg := Defaults()
+	applied, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Errorf("applied map should be empty, got %v", applied)
+	}
+	// Config should remain at defaults.
+	if cfg.Interface != "wg0" {
+		t.Errorf("Interface should be default, got %q", cfg.Interface)
+	}
+}
+
+func TestApplyEnv_MapKeyFormat(t *testing.T) {
+	// AC-47: map keys should be ENV VAR NAMES, not config field names.
+	t.Setenv("WG_SOCKD_INTERFACE", "wg2")
+
+	cfg := Defaults()
+	applied, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, ok := applied["WG_SOCKD_INTERFACE"]; !ok {
+		t.Errorf("map key should be 'WG_SOCKD_INTERFACE', got keys: %v", applied)
+	}
+	// Ensure it's not keyed by the config field name.
+	if _, ok := applied["interface"]; ok {
+		t.Error("map should not use config field name as key")
+	}
+}

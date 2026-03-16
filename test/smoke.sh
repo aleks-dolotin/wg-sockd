@@ -57,6 +57,42 @@ if ! command -v curl &>/dev/null; then
     exit 1
 fi
 
+# --- Test 0: Version and Dry-Run (AC-58, AC-59) ---
+echo "--- Version & Dry-Run ---"
+
+# AC-58: --version output check — verify non-empty, contains version string.
+if [ -f "${INSTALL_DIR:-/usr/local/bin}/wg-sockd" ]; then
+    VERSION_OUT="$("${INSTALL_DIR:-/usr/local/bin}/wg-sockd" --version 2>&1 || true)"
+    if [ -n "$VERSION_OUT" ] && echo "$VERSION_OUT" | grep -q "wg-sockd"; then
+        green "--version output valid: $VERSION_OUT"
+        PASS=$((PASS + 1))
+    else
+        red "--version output empty or invalid: $VERSION_OUT"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    red "wg-sockd binary not found for --version test"
+    FAIL=$((FAIL + 1))
+fi
+
+# AC-59: --dry-run exit code check — should be 0 or 1, not crash.
+if [ -f "${INSTALL_DIR:-/usr/local/bin}/wg-sockd" ]; then
+    DRY_RUN_EXIT=0
+    "${INSTALL_DIR:-/usr/local/bin}/wg-sockd" --config "${CONFIG:-/etc/wg-sockd/config.yaml}" --dry-run >/dev/null 2>&1 || DRY_RUN_EXIT=$?
+    if [ "$DRY_RUN_EXIT" -eq 0 ] || [ "$DRY_RUN_EXIT" -eq 1 ]; then
+        green "--dry-run exited cleanly (code: $DRY_RUN_EXIT)"
+        PASS=$((PASS + 1))
+    else
+        red "--dry-run crashed (exit code: $DRY_RUN_EXIT)"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    red "wg-sockd binary not found for --dry-run test"
+    FAIL=$((FAIL + 1))
+fi
+
+echo ""
+
 if [ ! -S "$SOCK" ]; then
     red "Socket not found: $SOCK — is wg-sockd running?"
     exit 1

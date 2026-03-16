@@ -12,7 +12,11 @@ wg-sockd supports two deployment architectures:
 ### Quick Install
 
 ```bash
+# Default mode: full binary (with UI) + CTL
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+
+# Agent-only mode: lean binary (no UI) + CTL — for K8s / headless
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
 The install script:
@@ -23,6 +27,8 @@ The install script:
 5. Starts the service
 
 ### Manual Install
+
+> **Note:** `make install` is a legacy install path. For production deployments, use `deploy/install.sh` which handles user creation, config management, upgrade paths, and SHA256 verification.
 
 ```bash
 make build
@@ -154,3 +160,65 @@ The Unix socket is the only entry point. Permissions:
 ### Capabilities
 
 Agent needs only `CAP_NET_ADMIN` for WireGuard netlink operations. No root required.
+
+## Troubleshooting
+
+When troubleshooting, always start with `--dry-run` to validate configuration and prerequisites before investigating further:
+
+```bash
+sudo wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
+```
+
+This validates config parsing, ui_listen format, directory permissions, and WireGuard availability without starting any services.
+
+### Common Issues
+
+**Agent won't start — "loading config" error**
+- Check YAML syntax: `cat /etc/wg-sockd/config.yaml | python3 -c 'import yaml,sys; yaml.safe_load(sys.stdin)'`
+- Ensure no tabs (YAML requires spaces)
+
+**Agent starts but WireGuard in degraded mode**
+- Install `wireguard-tools`: `apt install wireguard-tools` (or equivalent for your distro)
+- Verify `wg` is in PATH: `which wg`
+- Check WireGuard interface exists: `ip link show wg0`
+
+**UI not accessible**
+- Verify `serve_ui: true` in config
+- Check `ui_listen` format — must be `host:port` (e.g., `127.0.0.1:8080`)
+- Run `--dry-run` to validate ui_listen format
+- If using embedded UI, ensure binary was built with `make build-full` (check `wg-sockd --version` for `+ui` tag)
+- If `--version` shows no `+ui` tag, you have the lean binary — use `--serve-ui-dir` instead
+
+**Socket permission denied**
+- Client must be in the `wg-sockd` group: `sudo usermod -aG wg-sockd $USER`
+- Re-login or `newgrp wg-sockd` after adding group
+
+**Upgrade appended duplicate config entries**
+- The installer only appends `serve_ui`/`ui_listen` if `^serve_ui:` is not already present
+- Comments containing `serve_ui` don't match — only lines starting with `serve_ui:` count
+- If duplicated, manually edit `/etc/wg-sockd/config.yaml` to remove the extra entries
+
+**Environment variable override not working**
+- Bool values must be: `true`/`false`/`1`/`0`/`t`/`f` (case-insensitive)
+- Integer values must be valid numbers
+- Check: `WG_SOCKD_SERVE_UI=true wg-sockd --config /etc/wg-sockd/config.yaml --dry-run`
+
+### Diagnostic Commands
+
+```bash
+# Check service status
+systemctl status wg-sockd
+
+# View logs
+journalctl -u wg-sockd -f
+
+# Verify binary version
+wg-sockd --version
+wg-sockd-ctl --version
+
+# Validate config without starting
+wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
+
+# Test API directly
+curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
+```

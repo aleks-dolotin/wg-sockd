@@ -70,13 +70,25 @@ type ErrorResponse struct {
 
 func main() {
 	socketPath := flag.String("socket", defaultSocket, "path to wg-sockd Unix socket")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = usage
 	flag.Parse()
+
+	if *showVersion {
+		printVersion()
+		os.Exit(0)
+	}
 
 	args := flag.Args()
 	if len(args) == 0 {
 		usage()
 		os.Exit(1)
+	}
+
+	// Handle "version" subcommand (AC-43: same output as --version).
+	if args[0] == "version" {
+		printVersion()
+		os.Exit(0)
 	}
 
 	client := newUnixClient(*socketPath)
@@ -110,11 +122,21 @@ Commands:
   peers delete --id ID [--yes]          Delete a peer
   peers approve PUBKEY_PREFIX           Approve an auto-discovered peer
   profiles list                         List all profiles
+  version                               Print version and exit
 
 Flags:
   --socket PATH   Unix socket path (default: %s)
+  --version       Print version and exit
 
 `, defaultSocket)
+}
+
+func printVersion() {
+	v := version
+	if buildTags != "" {
+		v += "+" + buildTags
+	}
+	fmt.Printf("wg-sockd-ctl %s (commit: %s, built: %s)\n", v, commit, buildDate)
 }
 
 // --- HTTP client over Unix socket ---

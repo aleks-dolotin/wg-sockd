@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -32,17 +34,29 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("wg-sockd starting...")
+
+	// Step 0: Check for --version / --dry-run before anything else.
+	showVersion := flag.Bool("version", false, "print version and exit")
+	dryRun := flag.Bool("dry-run", false, "validate config and prerequisites, then exit")
 
 	// Step 1: Register ALL flags upfront, including config path and config-bound fields.
 	// Use defaults initially — they will be overridden by file, then by CLI.
 	cfg := config.Defaults()
 	configPath := flag.String("config", "/etc/wg-sockd/config.yaml", "config file path")
-	serveUI := flag.Bool("serve-ui", false, "serve embedded UI on TCP (requires embed_ui build tag)")
 	serveUIDir := flag.String("serve-ui-dir", "", "serve UI from external directory on TCP (no embed needed)")
-	uiListenAddr := flag.String("ui-listen", "127.0.0.1:8080", "TCP listen address for UI mode (default: loopback only)")
 	cfg.ApplyFlags(flag.CommandLine)
 	flag.Parse()
+
+	if *showVersion {
+		v := version
+		if buildTags != "" {
+			v += "+" + buildTags
+		}
+		fmt.Printf("wg-sockd %s (commit: %s, built: %s)\n", v, commit, buildDate)
+		os.Exit(0)
+	}
+
+	log.Println("wg-sockd starting...")
 
 	// Step 2: Load config file — overrides defaults for fields present in YAML.
 	fileCfg, err := config.LoadConfig(*configPath)
@@ -79,8 +93,82 @@ func main() {
 	cfg.PeerProfiles = fileCfg.PeerProfiles
 	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
 	cfg.RateLimit = fileCfg.RateLimit
+	// ServeUI and UIListen: use file value if not explicitly set on CLI.
+	if !explicitFlags["serve-ui"] {
+		cfg.ServeUI = fileCfg.ServeUI
+	}
+	if !explicitFlags["ui-listen"] {
+		cfg.UIListen = fileCfg.UIListen
+	}
+
+	// Step 4: Apply environment variable overrides (4-level config: default → file → env → CLI).
+	envApplied, err := cfg.ApplyEnv()
+	if err != nil {
+		log.Fatalf("FATAL: applying env overrides: %v", err)
+	}
+
+	// Step 5: Config override logging — only log non-default values (AC-39).
+	defaults := config.Defaults()
+	logOverride := func(field, value, source string) {
+		log.Printf("Config: %s=%s [%s]", field, value, source)
+	}
+	if cfg.Interface != defaults.Interface {
+		src := "yaml"
+		if v, ok := envApplied["WG_SOCKD_INTERFACE"]; ok {
+			src = "env: WG_SOCKD_INTERFACE=" + v
+		}
+		if explicitFlags["interface"] {
+			src = "cli"
+		}
+		logOverride("interface", cfg.Interface, src)
+	}
+	if cfg.SocketPath != defaults.SocketPath {
+		src := "yaml"
+		if v, ok := envApplied["WG_SOCKD_SOCKET_PATH"]; ok {
+			src = "env: WG_SOCKD_SOCKET_PATH=" + v
+		}
+		if explicitFlags["socket-path"] {
+			src = "cli"
+		}
+		logOverride("socket_path", cfg.SocketPath, src)
+	}
+	if cfg.DBPath != defaults.DBPath {
+		src := "yaml"
+		if v, ok := envApplied["WG_SOCKD_DB_PATH"]; ok {
+			src = "env: WG_SOCKD_DB_PATH=" + v
+		}
+		if explicitFlags["db-path"] {
+			src = "cli"
+		}
+		logOverride("db_path", cfg.DBPath, src)
+	}
+	if cfg.ServeUI != defaults.ServeUI {
+		src := "yaml"
+		if v, ok := envApplied["WG_SOCKD_SERVE_UI"]; ok {
+			src = "env: WG_SOCKD_SERVE_UI=" + v
+		}
+		if explicitFlags["serve-ui"] {
+			src = "cli"
+		}
+		logOverride("serve_ui", strconv.FormatBool(cfg.ServeUI), src)
+	}
+	if cfg.UIListen != defaults.UIListen {
+		src := "yaml"
+		if v, ok := envApplied["WG_SOCKD_UI_LISTEN"]; ok {
+			src = "env: WG_SOCKD_UI_LISTEN=" + v
+		}
+		if explicitFlags["ui-listen"] {
+			src = "cli"
+		}
+		logOverride("ui_listen", cfg.UIListen, src)
+	}
 
 	log.Printf("Config loaded: interface=%s, socket=%s, db=%s", cfg.Interface, cfg.SocketPath, cfg.DBPath)
+
+	// --dry-run: validate config + prerequisites, then exit (AC-14: NO SQLite/socket/wgctrl opened).
+	if *dryRun {
+		os.Exit(runDryRun(cfg))
+	}
 
 	if cfg.AutoApproveUnknown {
 		log.Println("WARNING: auto_approve_unknown is enabled — unknown peers will NOT be blocked")
@@ -233,8 +321,16 @@ func main() {
 
 
 	// 12. Optional: TCP listener for embedded UI mode.
+	// Config-driven UI with explicit boolean merge (F1, F13).
+	// effectiveServeUI is computed from config, then overridden if CLI --serve-ui was explicit.
+	effectiveServeUI := cfg.ServeUI
+	if explicitFlags["serve-ui"] {
+		effectiveServeUI = cfg.ServeUI // already set by flag.Parse → ApplyFlags
+	}
+
+	// --serve-ui-dir is a separate mechanism, independent of effectiveServeUI (F13/AC-57).
 	var tcpServer *http.Server
-	if *serveUI || *serveUIDir != "" {
+	if effectiveServeUI || *serveUIDir != "" {
 		uiMux := http.NewServeMux()
 
 		// Mount all API routes on the TCP mux too.
@@ -246,57 +342,66 @@ func main() {
 			// External directory mode — no build tag needed.
 			staticFS = http.Dir(*serveUIDir)
 			log.Printf("Serving UI from directory: %s", *serveUIDir)
-		} else if *serveUI {
+		} else if effectiveServeUI {
 			// Embedded mode — requires embed_ui build tag.
 			if embeddedUIFS == nil {
-				log.Fatal("FATAL: --serve-ui requires building with -tags embed_ui")
+				// AC-6 vs AC-7: config source → warn; CLI source → fatal.
+				if explicitFlags["serve-ui"] {
+					log.Fatal("FATAL: --serve-ui requires building with -tags embed_ui")
+				}
+				log.Println("WARNING: serve_ui=true in config but no embedded UI (lean build) — UI disabled")
+				effectiveServeUI = false
+			} else {
+				subFS, err := fs.Sub(*embeddedUIFS, "ui_dist")
+				if err != nil {
+					log.Fatalf("FATAL: embedded UI fs.Sub: %v", err)
+				}
+				staticFS = http.FS(subFS)
+				log.Println("Serving embedded UI assets")
 			}
-			subFS, err := fs.Sub(*embeddedUIFS, "ui_dist")
-			if err != nil {
-				log.Fatalf("FATAL: embedded UI fs.Sub: %v", err)
-			}
-			staticFS = http.FS(subFS)
-			log.Println("Serving embedded UI assets")
 		}
 
-		// SPA fallback handler: /api/* → API, everything else → static or index.html.
-		uiMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// RT-4: path.Clean on all requests.
-			cleanPath := path.Clean(r.URL.Path)
+		// Only start TCP listener if we actually have a UI source.
+		if staticFS != nil {
+			// SPA fallback handler: /api/* → API, everything else → static or index.html.
+			uiMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				// RT-4: path.Clean on all requests.
+				cleanPath := path.Clean(r.URL.Path)
 
-			// Skip API routes — already handled above.
-			if strings.HasPrefix(cleanPath, "/api/") {
-				http.NotFound(w, r)
-				return
-			}
+				// Skip API routes — already handled above.
+				if strings.HasPrefix(cleanPath, "/api/") {
+					http.NotFound(w, r)
+					return
+				}
 
-			// Try serving the static file.
-			f, err := staticFS.Open(cleanPath)
-			if err == nil {
-				f.Close()
+				// Try serving the static file.
+				f, err := staticFS.Open(cleanPath)
+				if err == nil {
+					f.Close()
+					http.FileServer(staticFS).ServeHTTP(w, r)
+					return
+				}
+
+				// SPA fallback: serve index.html for all non-file paths.
+				r.URL.Path = "/"
 				http.FileServer(staticFS).ServeHTTP(w, r)
-				return
-			}
+			})
 
-			// SPA fallback: serve index.html for all non-file paths.
-			r.URL.Path = "/"
-			http.FileServer(staticFS).ServeHTTP(w, r)
-		})
-
-		tcpListener, err := net.Listen("tcp", *uiListenAddr)
-		if err != nil {
-			log.Fatalf("FATAL: TCP listen on %s: %v", *uiListenAddr, err)
-		}
-		tcpServer = &http.Server{
-			Handler:     uiMux,
-			ConnContext: middleware.ConnContext,
-		}
-		go func() {
-			log.Printf("UI available at http://%s", *uiListenAddr)
-			if err := tcpServer.Serve(tcpListener); err != http.ErrServerClosed {
-				log.Printf("TCP server error: %v", err)
+			tcpListener, err := net.Listen("tcp", cfg.UIListen)
+			if err != nil {
+				log.Fatalf("FATAL: TCP listen on %s: %v", cfg.UIListen, err)
 			}
-		}()
+			tcpServer = &http.Server{
+				Handler:     uiMux,
+				ConnContext: middleware.ConnContext,
+			}
+			go func() {
+				log.Printf("UI available at http://%s", cfg.UIListen)
+				if err := tcpServer.Serve(tcpListener); err != http.ErrServerClosed {
+					log.Printf("TCP server error: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Shutdown goroutine — signals completion via shutdownDone channel.
@@ -330,6 +435,116 @@ func main() {
 	// Wait for shutdown goroutine to complete (Finding 3 — replaces time.Sleep hack).
 	<-shutdownDone
 	log.Println("wg-sockd stopped")
+}
+
+// runDryRun validates configuration and prerequisites without starting the agent.
+// Returns exit code: 0 = all OK, 1 = fatal issue found.
+// AC-14: NO SQLite/socket/wgctrl opened.
+func runDryRun(cfg *config.Config) int {
+	exitCode := 0
+
+	// 1. Version info.
+	v := version
+	if buildTags != "" {
+		v += "+" + buildTags
+	}
+	fmt.Printf("wg-sockd %s (commit: %s, built: %s)\n", v, commit, buildDate)
+	fmt.Println()
+
+	// 2. Effective config.
+	fmt.Println("=== Effective Configuration ===")
+	fmt.Printf("  interface:          %s\n", cfg.Interface)
+	fmt.Printf("  socket_path:        %s\n", cfg.SocketPath)
+	fmt.Printf("  db_path:            %s\n", cfg.DBPath)
+	fmt.Printf("  conf_path:          %s\n", cfg.ConfPath)
+	fmt.Printf("  serve_ui:           %v\n", cfg.ServeUI)
+	fmt.Printf("  ui_listen:          %s\n", cfg.UIListen)
+	fmt.Printf("  peer_limit:         %d\n", cfg.PeerLimit)
+	fmt.Printf("  reconcile_interval: %s\n", cfg.ReconcileInterval)
+	fmt.Printf("  rate_limit:         %d\n", cfg.RateLimit)
+	fmt.Println()
+
+	// 3. Prerequisites.
+	fmt.Println("=== Prerequisites ===")
+
+	// 3a. WireGuard check — warning only, not fatal (AC-12).
+	if _, err := exec.LookPath("wg"); err != nil {
+		fmt.Println("  ⚠️  WireGuard tools (wg) not found in PATH")
+	} else {
+		fmt.Println("  ✅ WireGuard tools found")
+	}
+
+	// 3b. ui_listen format validation (F15/AC-53).
+	if cfg.ServeUI || cfg.UIListen != "" {
+		if _, _, err := net.SplitHostPort(cfg.UIListen); err != nil {
+			fmt.Printf("  ❌ invalid ui_listen format: %q — %v\n", cfg.UIListen, err)
+			exitCode = 1
+		} else {
+			fmt.Printf("  ✅ ui_listen format valid: %s\n", cfg.UIListen)
+		}
+	}
+
+	// 3c. Data directory checks (F5/AC-49/AC-50).
+	dbDir := filepath.Dir(cfg.DBPath)
+	if info, err := os.Stat(dbDir); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("  ⚠️  data directory %s does not exist (will be created on first start)\n", dbDir)
+		} else {
+			fmt.Printf("  ❌ cannot stat data directory %s: %v\n", dbDir, err)
+			exitCode = 1
+		}
+	} else if !info.IsDir() {
+		fmt.Printf("  ❌ %s exists but is not a directory\n", dbDir)
+		exitCode = 1
+	} else {
+		// Check writable by attempting to create a temp file.
+		tmpFile := filepath.Join(dbDir, ".wg-sockd-dry-run-check")
+		if f, err := os.Create(tmpFile); err != nil {
+			fmt.Printf("  ❌ data directory %s exists but is not writable: %v\n", dbDir, err)
+			exitCode = 1
+		} else {
+			f.Close()
+			os.Remove(tmpFile)
+			fmt.Printf("  ✅ data directory writable: %s\n", dbDir)
+		}
+	}
+
+	// 3d. Socket directory check.
+	sockDir := filepath.Dir(cfg.SocketPath)
+	if info, err := os.Stat(sockDir); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("  ⚠️  socket directory %s does not exist (will be created on first start)\n", sockDir)
+		} else {
+			fmt.Printf("  ❌ cannot stat socket directory %s: %v\n", sockDir, err)
+			exitCode = 1
+		}
+	} else if !info.IsDir() {
+		fmt.Printf("  ❌ %s exists but is not a directory\n", sockDir)
+		exitCode = 1
+	} else {
+		fmt.Printf("  ✅ socket directory exists: %s\n", sockDir)
+	}
+
+	// 3e. Config file (WireGuard conf) check.
+	if _, err := os.Stat(cfg.ConfPath); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("  ⚠️  WireGuard config %s does not exist\n", cfg.ConfPath)
+		} else {
+			fmt.Printf("  ❌ cannot stat WireGuard config %s: %v\n", cfg.ConfPath, err)
+			exitCode = 1
+		}
+	} else {
+		fmt.Printf("  ✅ WireGuard config exists: %s\n", cfg.ConfPath)
+	}
+
+	fmt.Println()
+	if exitCode == 0 {
+		fmt.Println("✅ Dry run passed — configuration is valid")
+	} else {
+		fmt.Println("❌ Dry run failed — see errors above")
+	}
+
+	return exitCode
 }
 
 // watchdogLoop sends WATCHDOG=1 to systemd at half the watchdog interval.
