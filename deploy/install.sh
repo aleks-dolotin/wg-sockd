@@ -293,10 +293,10 @@ install_binary() {
                 info "SHA256 checksum verified for ${name}"
                 rm -f "$tmp_checksum"
             else
-                warn "SHA256 checksum not available for ${name} — skipping verification"
+                info "No SHA256 checksum published for this release — skipping verification"
             fi
         else
-            warn "sha256sum not available — skipping checksum verification"
+            info "sha256sum not found — skipping checksum verification"
         fi
 
         # Verify downloaded binary is not empty / truncated.

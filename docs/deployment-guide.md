@@ -11,11 +11,15 @@ wg-sockd supports two deployment architectures:
 
 ### Quick Install
 
-```bash
-# Default mode: full binary (with UI) + CTL
-curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+Default mode — full binary (with UI) + CTL:
 
-# Agent-only mode: lean binary (no UI) + CTL — for K8s / headless
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+```
+
+Agent-only mode — lean binary (no UI) + CTL, for K8s / headless:
+
+```bash
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
@@ -60,13 +64,17 @@ Key security settings:
 
 ### Embedded UI Mode
 
-For standalone deployments with web UI:
+For standalone deployments with web UI.
+
+Option A — serve from pre-built static files:
 
 ```bash
-# Option A: Pre-built static files
 sudo wg-sockd --config /etc/wg-sockd/config.yaml --serve-ui-dir /opt/wg-sockd/ui/dist
+```
 
-# Option B: Embedded in binary (build with make build-full)
+Option B — use embedded binary (build with `make build-full`):
+
+```bash
 sudo wg-sockd --config /etc/wg-sockd/config.yaml --serve-ui
 ```
 
@@ -76,8 +84,9 @@ UI is served on TCP `:8080` (configurable via `--ui-listen`).
 
 ```bash
 sudo make uninstall
-# Or: sudo bash deploy/uninstall.sh
 ```
+
+Alternatively: `sudo bash deploy/uninstall.sh`
 
 Preserves config and data in `/etc/wg-sockd` and `/var/lib/wg-sockd`.
 
@@ -100,7 +109,13 @@ kubectl label node MY_NODE_NAME wg-sockd=active
 
 Replace `MY_NODE_NAME` with the actual name from the output above.
 
-3. Agent installed on the node:
+Verify the label was applied:
+
+```bash
+kubectl get nodes --show-labels | grep wg-sockd
+```
+
+3. Agent installed on the node — SSH into it and run:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
@@ -128,16 +143,16 @@ image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
   tag: "0.1.0"
 
-# Pin to specific node (alternative to nodeSelector)
 nodeName: my-wg-node
 
-# Security — must match host GID
 securityContext:
   runAsGroup: 5000
 podSecurityContext:
   supplementalGroups:
     - 5000
 ```
+
+`nodeName` pins the pod to a specific node (alternative to `nodeSelector`). The `runAsGroup` and `supplementalGroups` must match the host GID (5000).
 
 ### Verify
 
@@ -150,13 +165,9 @@ open http://localhost:8080
 
 ```bash
 make docker-build
-# Builds: wg-sockd-ui:latest
-
-# Multi-stage Dockerfile:
-# Stage 1: Build React SPA (node:20-alpine)
-# Stage 2: Build Go proxy (golang:1.26-alpine)
-# Stage 3: Runtime (alpine:latest) — static React + Go proxy binary
 ```
+
+This builds `wg-sockd-ui:latest` using a multi-stage Dockerfile: Stage 1 builds the React SPA (node:20-alpine), Stage 2 builds the Go proxy (golang:1.26-alpine), Stage 3 is the runtime (alpine:latest) with the static React bundle and Go proxy binary.
 
 ## Security Considerations
 
@@ -222,20 +233,33 @@ This validates config parsing, ui_listen format, directory permissions, and Wire
 
 ### Diagnostic Commands
 
+Check service status:
+
 ```bash
-# Check service status
 systemctl status wg-sockd
+```
 
-# View logs
+View logs:
+
+```bash
 journalctl -u wg-sockd -f
+```
 
-# Verify binary version
+Verify binary versions:
+
+```bash
 wg-sockd --version
 wg-sockd-ctl --version
+```
 
-# Validate config without starting
+Validate config without starting:
+
+```bash
 wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
+```
 
-# Test API directly
+Test API directly:
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
 ```

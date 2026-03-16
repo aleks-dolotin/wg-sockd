@@ -117,25 +117,34 @@ jobs:
 
       - name: Build agent (lean)
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA::8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           cd agent
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} \
-            go build -ldflags="-s -w" \
+            go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
             -o $GITHUB_WORKSPACE/wg-sockd-linux-${{ matrix.goarch }} \
             ./cmd/wg-sockd/
 
       - name: Build agent-full (embedded UI)
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA::8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           cd agent
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} \
-            go build -tags embed_ui -ldflags="-s -w" \
+            go build -tags embed_ui -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE} -X main.buildTags=ui" \
             -o $GITHUB_WORKSPACE/wg-sockd-full-linux-${{ matrix.goarch }} \
             ./cmd/wg-sockd/
 
       - name: Build CLI
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA::8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           cd cmd/wg-sockd-ctl
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} \
-            go build -ldflags="-s -w" \
+            go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
             -o $GITHUB_WORKSPACE/wg-sockd-ctl-linux-${{ matrix.goarch }} \
             .
 
@@ -176,8 +185,13 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum wg-sockd-* > checksums.txt
-          echo "=== Checksums ==="
+          for f in wg-sockd-*; do
+            sha256sum "$f" > "${f}.sha256"
+          done
+          echo "=== Individual checksums ==="
+          cat *.sha256
+          echo "=== Combined checksums ==="
+          sha256sum wg-sockd-* | grep -v '\.sha256' > checksums.txt
           cat checksums.txt
 
       # PM-5: Idempotent release creation

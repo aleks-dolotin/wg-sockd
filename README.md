@@ -82,22 +82,30 @@ The UI is configured via `serve_ui` and `ui_listen` in `/etc/wg-sockd/config.yam
 
 ### 3. Verify Installation
 
+Check version of both binaries:
+
 ```bash
-# Check version of both binaries
 wg-sockd --version
 wg-sockd-ctl --version
+```
 
-# Validate config and prerequisites
+Validate config and prerequisites:
+
+```bash
 sudo wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
 ```
 
 ### 4. Create Your First Peer
 
-```bash
-# Via CLI:
-wg-sockd-ctl peers add --name "alice-phone" --profile "full-tunnel"
+Via CLI:
 
-# Via API:
+```bash
+wg-sockd-ctl peers add --name "alice-phone" --profile "full-tunnel"
+```
+
+Via API:
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
@@ -106,11 +114,11 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 
 ### 5. Scan QR Code
 
-```bash
-# Open in browser:
-http://your-host:8080/peers
+Open in browser: `http://your-host:8080/peers`
 
-# Or via API — save QR as PNG:
+Or via API — save QR as PNG:
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/qr -o peer-qr.png
 ```
@@ -142,14 +150,21 @@ kubectl label node MY_NODE_NAME wg-sockd=active
 
 Replace `MY_NODE_NAME` with the actual name from the output above.
 
-### 2. Install Agent on Node
+Verify the label was applied:
 
 ```bash
-# --agent-only installs the lean binary without embedded UI
+kubectl get nodes --show-labels | grep wg-sockd
+```
+
+### 2. Install Agent on Node
+
+SSH into the node and run the installer:
+
+```bash
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
-### Install UI via Helm
+### 3. Install UI via Helm
 
 ```bash
 helm install wg-sockd-ui ./chart/ \
@@ -157,7 +172,7 @@ helm install wg-sockd-ui ./chart/ \
   --set image.tag=latest
 ```
 
-### Verify
+### 4. Verify
 
 ```bash
 kubectl port-forward svc/wg-sockd-ui 8080:8080
@@ -167,21 +182,20 @@ open http://localhost:8080
 ### Custom Values
 
 ```yaml
-# values.yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
   tag: "0.1.0"
 
-# Pin to specific node (alternative to nodeSelector)
 nodeName: my-wg-node
 
-# Security — must match host GID
 securityContext:
   runAsGroup: 5000
 podSecurityContext:
   supplementalGroups:
     - 5000
 ```
+
+`nodeName` pins the pod to a specific node (alternative to `nodeSelector`). The `runAsGroup` and `supplementalGroups` must match the host GID (5000).
 
 ---
 
@@ -249,65 +263,93 @@ All endpoints are available via Unix socket. Use `curl --unix-socket` for direct
 
 ### Health
 
+`GET /api/health`
+
 ```bash
-# GET /api/health
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
-# {"status":"ok","wireguard":"ok","sqlite":"ok"}
 ```
 
 ### Stats
 
+`GET /api/stats`
+
 ```bash
-# GET /api/stats
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/stats
-# {"total_peers":5,"online_peers":2,"total_rx":1048576,"total_tx":524288}
 ```
 
 ### Peers
 
-```bash
-# GET /api/peers — list all peers
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/peers
+**List all peers** — `GET /api/peers`
 
-# POST /api/peers — create peer (with profile)
+```bash
+curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/peers
+```
+
+**Create peer with profile** — `POST /api/peers`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "bob-laptop", "profile": "full-tunnel"}'
+```
 
-# POST /api/peers — create peer (with custom IPs)
+**Create peer with custom IPs** — `POST /api/peers`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "custom-peer", "allowed_ips": ["10.0.0.0/24"]}'
+```
 
-# PUT /api/peers/{id} — update peer
+**Update peer** — `PUT /api/peers/{id}`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X PUT http://localhost/api/peers/1 \
   -H "Content-Type: application/json" \
   -d '{"friendly_name": "bob-laptop-new", "notes": "Updated name"}'
+```
 
-# DELETE /api/peers/{id} — delete peer
+**Delete peer** — `DELETE /api/peers/{id}`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X DELETE http://localhost/api/peers/1
+```
 
-# GET /api/peers/{id}/conf — download client .conf
+**Download client .conf** — `GET /api/peers/{id}/conf`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/conf
+```
 
-# GET /api/peers/{id}/qr — download QR code PNG
+**Download QR code PNG** — `GET /api/peers/{id}/qr`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   http://localhost/api/peers/1/qr -o peer.png
+```
 
-# POST /api/peers/{id}/rotate-keys — rotate keypair
+**Rotate keypair** — `POST /api/peers/{id}/rotate-keys`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/1/rotate-keys
+```
 
-# POST /api/peers/{id}/approve — approve auto-discovered peer
+**Approve auto-discovered peer** — `POST /api/peers/{id}/approve`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/5/approve
+```
 
-# POST /api/peers/batch — create multiple peers
+**Batch create peers** — `POST /api/peers/batch`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/peers/batch \
   -H "Content-Type: application/json" \
@@ -316,23 +358,33 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 
 ### Profiles
 
-```bash
-# GET /api/profiles — list all profiles
-curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/profiles
+**List all profiles** — `GET /api/profiles`
 
-# POST /api/profiles — create profile
+```bash
+curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/profiles
+```
+
+**Create profile** — `POST /api/profiles`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/profiles \
   -H "Content-Type: application/json" \
   -d '{"name": "media-only", "display_name": "Media Server", "allowed_ips": ["192.168.1.0/24"], "exclude_ips": ["192.168.1.1/32"], "description": "Access media server only"}'
+```
 
-# PUT /api/profiles/{name} — update profile
+**Update profile** — `PUT /api/profiles/{name}`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X PUT http://localhost/api/profiles/media-only \
   -H "Content-Type: application/json" \
   -d '{"description": "Updated description"}'
+```
 
-# DELETE /api/profiles/{name} — delete profile (fails if peers use it)
+**Delete profile** (fails if peers use it) — `DELETE /api/profiles/{name}`
+
+```bash
 curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X DELETE http://localhost/api/profiles/media-only
 ```
@@ -363,29 +415,51 @@ Profiles are seeded from `config.yaml` on first start. After that, the database 
 
 `wg-sockd-ctl` is a standalone CLI for the agent API.
 
+List peers:
+
 ```bash
-# List peers
 wg-sockd-ctl peers list
+```
 
-# Add peer with profile
+Add peer with profile:
+
+```bash
 wg-sockd-ctl peers add --name "alice-phone" --profile "full-tunnel"
+```
 
-# Add peer with custom IPs
+Add peer with custom IPs:
+
+```bash
 wg-sockd-ctl peers add --name "custom" --allowed-ips "10.0.0.0/24,192.168.1.0/24"
+```
 
-# Delete peer (with confirmation)
+Delete peer (with confirmation prompt):
+
+```bash
 wg-sockd-ctl peers delete --id 3
+```
 
-# Delete peer (skip confirmation)
+Delete peer (skip confirmation):
+
+```bash
 wg-sockd-ctl peers delete --id 3 --yes
+```
 
-# Approve auto-discovered peer (by pubkey prefix)
+Approve auto-discovered peer by pubkey prefix:
+
+```bash
 wg-sockd-ctl peers approve abc123
+```
 
-# List profiles
+List profiles:
+
+```bash
 wg-sockd-ctl profiles list
+```
 
-# Use custom socket path
+Use custom socket path:
+
+```bash
 wg-sockd-ctl --socket /custom/path.sock peers list
 ```
 
@@ -444,19 +518,29 @@ The agent listens on a Unix domain socket with restricted permissions:
 
 ## Uninstall
 
+Stop and disable service:
+
 ```bash
-# Stop and disable service
 sudo systemctl stop wg-sockd
 sudo systemctl disable wg-sockd
+```
 
-# Remove binaries
+Remove binaries:
+
+```bash
 sudo rm -f /usr/local/bin/wg-sockd /usr/local/bin/wg-sockd-ctl
+```
 
-# Remove systemd unit
+Remove systemd unit:
+
+```bash
 sudo rm -f /etc/systemd/system/wg-sockd.service
 sudo systemctl daemon-reload
+```
 
-# --purge: also remove config and data (irreversible!)
+Purge config and data (irreversible):
+
+```bash
 sudo rm -rf /etc/wg-sockd /var/lib/wg-sockd
 ```
 
@@ -464,36 +548,49 @@ sudo rm -rf /etc/wg-sockd /var/lib/wg-sockd
 
 ## Development
 
+Local dev mode — API-only, runs in degraded mode on macOS:
+
 ```bash
-# Local dev mode — API-only, runs in degraded mode on macOS
 make dev
-
-# This creates ./tmp/ with isolated config and data.
-# Edit ./tmp/dev-config.yaml to customize (file is preserved across runs).
-# NOTE: WG_SOCKD_* env vars from your shell still apply.
-#       Use `env -u WG_SOCKD_INTERFACE make dev` to isolate.
-
-# make install is the legacy install path — for production, use deploy/install.sh instead.
 ```
+
+This creates `./tmp/` with isolated config and data. Edit `./tmp/dev-config.yaml` to customize (file is preserved across runs).
+
+Note: `WG_SOCKD_*` env vars from your shell still apply. Use `env -u WG_SOCKD_INTERFACE make dev` to isolate fully.
+
+For production installs, use `deploy/install.sh` instead of `make install`.
 
 ---
 
 ## Building
 
+Build lean agent (~15MB):
+
 ```bash
-# Build lean agent (~15MB) — --version shows commit and date
 make build
+```
 
-# Build agent with embedded UI (~30MB) — --version shows +ui tag
+Build agent with embedded UI (~30MB) — `--version` will show `+ui` tag:
+
+```bash
 make build-full
+```
 
-# Build CLI — --version shows commit and date
+Build CLI:
+
+```bash
 make build-ctl
+```
 
-# Run all tests
+Run all tests:
+
+```bash
 make test-all
+```
 
-# Build UI Docker image
+Build UI Docker image:
+
+```bash
 make docker-build
 ```
 
