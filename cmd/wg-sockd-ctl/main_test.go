@@ -144,8 +144,8 @@ func TestPeersApprove(t *testing.T) {
 
 	client := newUnixClient(sock)
 
-	// Exact prefix match
-	err := peersApprove(client, []string{"abc"})
+	// Exact prefix match (minimum 4 chars required)
+	err := peersApprove(client, []string{"abc1"})
 	if err != nil {
 		t.Fatalf("peersApprove: %v", err)
 	}

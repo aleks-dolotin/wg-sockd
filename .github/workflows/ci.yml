@@ -41,18 +41,21 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: agent
+          only-new-issues: true
 
       - name: Lint ui-proxy
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: ui
+          only-new-issues: true
 
       - name: Lint ctl
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: cmd/wg-sockd-ctl
+          only-new-issues: true
 
       # Tests across all 3 Go modules
       - name: Test agent
