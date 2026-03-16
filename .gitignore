@@ -3,7 +3,8 @@
 *.iws
 *.ipr
 .claude/
-.github/
+.github/skills
+.github/prompts
 _bmad/
 _bmad-output/
 .playwright-mcp/
