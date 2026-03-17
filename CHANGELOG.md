@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.4.0] — 2026-03-16
+
+### Changed
+
+- Bump version to 0.4.0 for full-flow validation
+- Update Helm chart version and appVersion to 0.4.0
+- Update image tag to 0.4.0
+
 ## [v0.3.0] — 2026-03-17
 
 ### Added
