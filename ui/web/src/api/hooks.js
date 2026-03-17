@@ -5,7 +5,6 @@ import {
   fetchProfiles,
   fetchStats,
   fetchHealth,
-  fetchConnectionStatus,
 } from './client'
 
 export function usePeers() {
