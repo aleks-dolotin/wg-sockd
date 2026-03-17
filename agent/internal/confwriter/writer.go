@@ -104,6 +104,15 @@ func ParseConf(path string) (*ConfFile, error) {
 			continue
 		}
 
+		// Skip orphaned wg-sockd metadata comments that are not followed
+		// by a [Peer] section. These accumulate when a peer is deleted from
+		// the database but its comments remain in the conf file.
+		// Without this guard, ParseConf would absorb them into InterfaceRaw
+		// and WriteConf would duplicate them on every write cycle.
+		if cur == secInterface && strings.HasPrefix(trimmed, "# wg-sockd:") {
+			continue
+		}
+
 		switch cur {
 		case secPre:
 			preBuf.WriteString(line + "\n")
@@ -163,7 +172,7 @@ func WriteConf(path string, peers []PeerConf) error {
 			fmt.Fprintf(&buf, "# wg-sockd:name=%s\n", safeName)
 		}
 		if !p.CreatedAt.IsZero() {
-			fmt.Fprintf(&buf, "# wg-sockd:created=%s\n", p.CreatedAt.Format("2006-01-02"))
+			fmt.Fprintf(&buf, "# wg-sockd:created=%s\n", p.CreatedAt.Format(time.RFC3339))
 		}
 		if p.Notes != "" {
 			safeNotes := sanitizeConfValue(p.Notes)

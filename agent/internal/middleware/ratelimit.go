@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/ctxkeys"
 )
 
 // connIDKey is the context key type for per-connection identification.
@@ -22,9 +24,22 @@ var connCounter atomic.Int64
 // It injects a unique per-connection ID into the request context,
 // enabling per-connection rate limiting for Unix sockets where
 // RemoteAddr is not meaningful.
+// Also injects IsUnixSocketKey for auth middleware to skip authentication
+// on Unix socket connections when configured.
 func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	id := connCounter.Add(1)
-	return context.WithValue(ctx, connIDKey{}, id)
+	ctx = context.WithValue(ctx, connIDKey{}, id)
+	ctx = context.WithValue(ctx, ctxkeys.IsUnixSocketKey{}, isUnixConn(c))
+	return ctx
+}
+
+// isUnixConn returns true if the connection is a Unix socket.
+func isUnixConn(c net.Conn) bool {
+	if c == nil || c.RemoteAddr() == nil {
+		return false
+	}
+	_, ok := c.RemoteAddr().(*net.UnixAddr)
+	return ok
 }
 
 // connIDFromContext extracts the connection ID injected by ConnContext.

@@ -28,6 +28,9 @@ const defaultSocket = "/var/run/wg-sockd/wg-sockd.sock"
 // jsonOutput is a global flag parsed in main() alongside --socket and --version.
 var jsonOutput bool
 
+// authToken is a global flag for Bearer token authentication.
+var authToken string
+
 // --- API types (standalone, no shared code with agent) ---
 
 type PeerResponse struct {
@@ -108,8 +111,14 @@ func main() {
 	socketPath := flag.String("socket", defaultSocket, "path to wg-sockd Unix socket")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.BoolVar(&jsonOutput, "json", false, "output in JSON format")
+	flag.StringVar(&authToken, "token", "", "Bearer token for API authentication")
 	flag.Usage = usage
 	flag.Parse()
+
+	// Env var fallback for token (flag takes precedence).
+	if authToken == "" {
+		authToken = os.Getenv("WG_SOCKD_AUTH_TOKEN")
+	}
 
 	if *showVersion {
 		printVersion()
@@ -139,6 +148,8 @@ func main() {
 		err = healthCmd(client)
 	case "stats":
 		err = statsCmd(client)
+	case "hash-password":
+		err = hashPasswordCmd()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
 		usage()
@@ -154,7 +165,7 @@ func main() {
 func usage() {
 	fmt.Fprintf(os.Stderr, `wg-sockd-ctl — CLI for wg-sockd agent
 
-Usage: wg-sockd-ctl [--socket PATH] [--json] <command> [flags]
+Usage: wg-sockd-ctl [--socket PATH] [--json] [--token TOKEN] <command> [flags]
 
 Commands:
   peers list                                List all peers
@@ -170,11 +181,13 @@ Commands:
   profiles delete --name N [--yes]          Delete a profile
   health                                    Show agent health
   stats                                     Show aggregate stats
+  hash-password                             Generate bcrypt hash from stdin
   version                                   Print version and exit
 
 Flags:
   --socket PATH   Unix socket path (default: %s)
   --json          Output in JSON format
+  --token TOKEN   Bearer token for API authentication (env: WG_SOCKD_AUTH_TOKEN)
   --version       Print version and exit
 
 `, defaultSocket)
@@ -216,6 +229,9 @@ func doRequest(client *http.Client, method, path string, body io.Reader) (*http.
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 	return client.Do(req)
 }
@@ -911,6 +927,46 @@ func statsCmd(client *http.Client) error {
 	fmt.Printf("Online:      %d\n", stats.OnlinePeers)
 	fmt.Printf("Total RX:    %s\n", humanBytes(stats.TotalRx))
 	fmt.Printf("Total TX:    %s\n", humanBytes(stats.TotalTx))
+	return nil
+}
+
+// --- Hash Password ---
+
+func hashPasswordCmd() error {
+	fmt.Fprint(os.Stderr, "Enter password: ")
+	var password []byte
+	var err error
+
+	// Try to read without echo using x/term; fallback to bufio if not a terminal.
+	fd := int(os.Stdin.Fd())
+	if isTerminal(fd) {
+		password, err = readPasswordNoEcho(fd)
+		fmt.Fprintln(os.Stderr) // newline after no-echo input
+		if err != nil {
+			return fmt.Errorf("reading password: %w", err)
+		}
+	} else {
+		// Pipe/redirect — read one line.
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			password = scanner.Bytes()
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("reading password: %w", err)
+		}
+	}
+
+	if len(password) == 0 {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	hash, err := bcryptGenerateFromPassword(password, 12)
+	if err != nil {
+		return fmt.Errorf("generating hash: %w", err)
+	}
+
+	// Print hash to stdout (pipe-friendly, no extra text).
+	fmt.Println(string(hash))
 	return nil
 }
 

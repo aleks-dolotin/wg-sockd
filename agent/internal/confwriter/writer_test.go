@@ -138,7 +138,7 @@ func TestWriteConf_PreservesPostUpPostDown(t *testing.T) {
 	if !strings.Contains(content, "# wg-sockd:name=Phone") {
 		t.Error("name metadata should be present")
 	}
-	if !strings.Contains(content, "# wg-sockd:created=2026-03-15") {
+	if !strings.Contains(content, "# wg-sockd:created=2026-03-15T") {
 		t.Error("created metadata should be present")
 	}
 	if !strings.Contains(content, "# wg-sockd:notes=Personal phone") {
@@ -270,8 +270,8 @@ Address = 10.0.0.1/24
 	if a.Notes != "laptop" {
 		t.Errorf("KEY_A notes: got %q, want %q", a.Notes, "laptop")
 	}
-	if a.CreatedAt != "2026-03-15" {
-		t.Errorf("KEY_A created: got %q, want %q", a.CreatedAt, "2026-03-15")
+	if !strings.HasPrefix(a.CreatedAt, "2026-03-15T") {
+		t.Errorf("KEY_A created: got %q, want prefix %q", a.CreatedAt, "2026-03-15T")
 	}
 
 	b := meta["KEY_B"]

@@ -55,3 +55,24 @@ prometheus:
   enabled: false
   path: /api/metrics
   port: 8080
+
+# Authentication configuration
+# For security, use an external Secret for production. Only set secretName.
+# If secretName is empty and auth is enabled, a Secret is auto-generated from values below.
+auth:
+  # Reference an existing Secret containing auth env vars.
+  # Keys: WG_SOCKD_AUTH_BASIC_PASSWORD_HASH, WG_SOCKD_AUTH_TOKEN
+  secretName: ""
+  basic:
+    enabled: false
+    username: "admin"
+    # Do NOT put password_hash here in production — use a Secret.
+    # password_hash: ""
+  token:
+    enabled: false
+    # Do NOT put token here in production — use a Secret.
+    # token: ""
+  sessionTtl: "15m"
+  skipUnixSocket: true
+  secureCookies: "auto"
+  maxSessions: 100

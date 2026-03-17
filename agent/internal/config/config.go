@@ -4,6 +4,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -17,6 +18,42 @@ type PeerProfileConfig struct {
 	AllowedIPs  []string `yaml:"allowed_ips"`
 	ExcludeIPs  []string `yaml:"exclude_ips"`
 	Description string   `yaml:"description"`
+}
+
+// BasicAuthConfig holds username/password authentication settings.
+type BasicAuthConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Username     string `yaml:"username"`
+	PasswordHash string `yaml:"password_hash"`
+}
+
+// TokenAuthConfig holds bearer token authentication settings.
+type TokenAuthConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Token   string `yaml:"token"`
+}
+
+// WebAuthnConfig holds passkey/WebAuthn authentication settings.
+type WebAuthnConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	DisplayName string `yaml:"display_name"`
+	Origin      string `yaml:"origin"`
+}
+
+// AuthConfig holds all authentication configuration.
+type AuthConfig struct {
+	Basic          BasicAuthConfig  `yaml:"basic"`
+	Token          TokenAuthConfig  `yaml:"token"`
+	WebAuthn       WebAuthnConfig   `yaml:"webauthn"`
+	SessionTTL     time.Duration    `yaml:"session_ttl"`
+	SkipUnixSocket bool             `yaml:"skip_unix_socket"`
+	SecureCookies  string           `yaml:"secure_cookies"`
+	MaxSessions    int              `yaml:"max_sessions"`
+}
+
+// AnyEnabled returns true if at least one authentication method is enabled.
+func (a *AuthConfig) AnyEnabled() bool {
+	return a.Basic.Enabled || a.Token.Enabled
 }
 
 // Config holds all agent configuration.
@@ -34,6 +71,7 @@ type Config struct {
 	RateLimit          int                  `yaml:"rate_limit"`
 	ServeUI            bool                 `yaml:"serve_ui"`
 	UIListen           string               `yaml:"ui_listen"`
+	Auth               AuthConfig           `yaml:"auth"`
 }
 
 // Defaults returns a Config populated with default values.
@@ -50,6 +88,12 @@ func Defaults() *Config {
 		RateLimit:          10,
 		ServeUI:            false,
 		UIListen:           "127.0.0.1:8080",
+		Auth: AuthConfig{
+			SessionTTL:     15 * time.Minute,
+			SkipUnixSocket: true,
+			SecureCookies:  "auto",
+			MaxSessions:    100,
+		},
 	}
 }
 
@@ -138,6 +182,59 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 			return nil
 		}},
 		{"WG_SOCKD_UI_LISTEN", func(v string) error { c.UIListen = v; return nil }},
+		{"WG_SOCKD_AUTH_BASIC_ENABLED", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.Auth.Basic.Enabled = b
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_BASIC_USERNAME", func(v string) error { c.Auth.Basic.Username = v; return nil }},
+		{"WG_SOCKD_AUTH_BASIC_PASSWORD_HASH", func(v string) error { c.Auth.Basic.PasswordHash = v; return nil }},
+		{"WG_SOCKD_AUTH_TOKEN_ENABLED", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.Auth.Token.Enabled = b
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_TOKEN", func(v string) error { c.Auth.Token.Token = v; return nil }},
+		{"WG_SOCKD_AUTH_SESSION_TTL", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid duration value %q", v)
+			}
+			c.Auth.SessionTTL = d
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_SKIP_UNIX_SOCKET", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.Auth.SkipUnixSocket = b
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_SECURE_COOKIES", func(v string) error { c.Auth.SecureCookies = v; return nil }},
+		{"WG_SOCKD_AUTH_MAX_SESSIONS", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid integer value %q", v)
+			}
+			c.Auth.MaxSessions = n
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_WEBAUTHN_ENABLED", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid boolean value %q", v)
+			}
+			c.Auth.WebAuthn.Enabled = b
+			return nil
+		}},
+		{"WG_SOCKD_AUTH_WEBAUTHN_ORIGIN", func(v string) error { c.Auth.WebAuthn.Origin = v; return nil }},
 	}
 
 	for _, m := range mappings {
@@ -152,4 +249,42 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 	}
 
 	return applied, nil
+}
+
+// ValidateAuth checks auth configuration for fatal errors and warnings.
+// Returns an error if the config is invalid (caller should fatal).
+// Logs warnings for non-fatal issues.
+func (c *Config) ValidateAuth() error {
+	a := &c.Auth
+
+	// Validate session TTL bounds.
+	if a.SessionTTL < 5*time.Minute || a.SessionTTL > 720*time.Hour {
+		return fmt.Errorf("auth.session_ttl must be between 5m and 720h, got %s", a.SessionTTL)
+	}
+
+	// Basic auth: enabled but no password hash → fatal.
+	if a.Basic.Enabled && a.Basic.PasswordHash == "" {
+		return fmt.Errorf("auth.basic.enabled=true but password_hash is empty — generate one with: wg-sockd-ctl hash-password")
+	}
+
+	// Token auth: enabled but no token → fatal.
+	if a.Token.Enabled && a.Token.Token == "" {
+		return fmt.Errorf("auth.token.enabled=true but token is empty")
+	}
+
+	// WebAuthn: enabled but no origin → fatal.
+	if a.WebAuthn.Enabled && a.WebAuthn.Origin == "" {
+		return fmt.Errorf("auth.webauthn.enabled=true but origin is empty — set auth.webauthn.origin to the public URL (e.g. https://vpn.example.com)")
+	}
+
+	// Warnings (non-fatal).
+	if a.Token.Enabled && len(a.Token.Token) < 32 {
+		log.Printf("WARN: auth.token.token is shorter than 32 characters — consider using a longer token")
+	}
+
+	if !a.AnyEnabled() {
+		log.Printf("WARN: No authentication methods configured — API is unprotected. Set auth.basic.enabled or auth.token.enabled in config.")
+	}
+
+	return nil
 }

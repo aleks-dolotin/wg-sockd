@@ -50,6 +50,33 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
+          env:
+            {{- if .Values.auth.basic.enabled }}
+            - name: WG_SOCKD_AUTH_BASIC_ENABLED
+              value: "true"
+            - name: WG_SOCKD_AUTH_BASIC_USERNAME
+              value: {{ .Values.auth.basic.username | quote }}
+            {{- end }}
+            {{- if .Values.auth.token.enabled }}
+            - name: WG_SOCKD_AUTH_TOKEN_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.auth.sessionTtl }}
+            - name: WG_SOCKD_AUTH_SESSION_TTL
+              value: {{ .Values.auth.sessionTtl | quote }}
+            {{- end }}
+            - name: WG_SOCKD_AUTH_SKIP_UNIX_SOCKET
+              value: {{ .Values.auth.skipUnixSocket | quote }}
+            - name: WG_SOCKD_AUTH_SECURE_COOKIES
+              value: {{ .Values.auth.secureCookies | quote }}
+            - name: WG_SOCKD_AUTH_MAX_SESSIONS
+              value: {{ .Values.auth.maxSessions | quote }}
+          {{- $secretName := .Values.auth.secretName | default (printf "%s-auth" .Release.Name) }}
+          {{- if or .Values.auth.basic.enabled .Values.auth.token.enabled }}
+          envFrom:
+            - secretRef:
+                name: {{ $secretName }}
+          {{- end }}
           {{- if .Values.securityContext }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

@@ -22,6 +22,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/api"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/auth"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/health"
@@ -98,6 +99,20 @@ func main() {
 	cfg.PeerProfiles = fileCfg.PeerProfiles
 	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
 	cfg.RateLimit = fileCfg.RateLimit
+	cfg.Auth = fileCfg.Auth
+	// Preserve auth defaults if not set in file.
+	if fileCfg.Auth.SessionTTL == 0 {
+		cfg.Auth.SessionTTL = config.Defaults().Auth.SessionTTL
+	}
+	if fileCfg.Auth.MaxSessions == 0 {
+		cfg.Auth.MaxSessions = config.Defaults().Auth.MaxSessions
+	}
+	if fileCfg.Auth.SecureCookies == "" {
+		cfg.Auth.SecureCookies = config.Defaults().Auth.SecureCookies
+	}
+	// SkipUnixSocket defaults to true; YAML false is valid, so only override if zero-value AND file didn't set it.
+	// Since bool zero is false, we trust the file value and only set default if the entire Auth block was absent.
+
 	// ServeUI and UIListen: use file value if not explicitly set on CLI.
 	if !explicitFlags["serve-ui"] {
 		cfg.ServeUI = fileCfg.ServeUI
@@ -169,6 +184,11 @@ func main() {
 	}
 
 	log.Printf("Config loaded: interface=%s, socket=%s, db=%s", cfg.Interface, cfg.SocketPath, cfg.DBPath)
+
+	// Step 5a: Validate auth config (F9: after ALL 4 config levels merged).
+	if err := cfg.ValidateAuth(); err != nil {
+		log.Fatalf("FATAL: auth config: %v", err)
+	}
 
 	// --dry-run: validate config + prerequisites, then exit (AC-14: NO SQLite/socket/wgctrl opened).
 	if *dryRun {
@@ -304,7 +324,49 @@ func main() {
 	metricsRegistry.MustRegister(metricsCollector)
 	baseMux := http.NewServeMux()
 	baseMux.Handle("/api/metrics", promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
-	baseMux.Handle("/", mux) // all other routes go through rate-limited router
+	// Auth middleware — session store, rate limiter, handlers.
+	var sessionStore *auth.SessionStore
+	var loginRateLimiter *auth.LoginRateLimiter
+	if cfg.Auth.AnyEnabled() {
+		sessionStore = auth.NewSessionStore(cfg.Auth.SessionTTL, cfg.Auth.MaxSessions)
+
+		loginRateLimiter = auth.NewLoginRateLimiter(5, 60*time.Second)
+
+		var basicVerifier *auth.BasicAuthVerifier
+		if cfg.Auth.Basic.Enabled {
+			basicVerifier = auth.NewBasicAuthVerifier(cfg.Auth.Basic.Username, cfg.Auth.Basic.PasswordHash)
+		}
+
+		var tokenVerifier *auth.TokenAuthVerifier
+		if cfg.Auth.Token.Enabled {
+			tokenVerifier = auth.NewTokenAuthVerifier(cfg.Auth.Token.Token)
+		}
+
+		authHandlers := auth.NewAuthHandlers(&cfg.Auth, sessionStore, basicVerifier, loginRateLimiter, auth.NoopCredentialCounter())
+		baseMux.Handle("/api/auth/", authHandlers.Handler())
+
+		authMw := auth.NewMiddleware(sessionStore, tokenVerifier, cfg.Auth.SkipUnixSocket)
+		baseMux.Handle("/", authMw.Wrap(mux))
+
+		// Log auth mode.
+		if cfg.Auth.Basic.Enabled {
+			log.Printf("Auth: basic auth enabled (username=%s)", cfg.Auth.Basic.Username)
+		}
+		if cfg.Auth.Token.Enabled {
+			log.Println("Auth: bearer token auth enabled")
+		}
+		log.Printf("Auth: session TTL=%s, max_sessions=%d, skip_unix_socket=%v", cfg.Auth.SessionTTL, cfg.Auth.MaxSessions, cfg.Auth.SkipUnixSocket)
+	} else {
+		// No auth — register auth handlers for session endpoint (returns auth_required: false),
+		// then pass mux through unmodified.
+		noAuthSS := auth.NewSessionStore(15*time.Minute, 1)
+		noAuthLR := auth.NewLoginRateLimiter(5, 60*time.Second)
+		noAuthHandlers := auth.NewAuthHandlers(&cfg.Auth, noAuthSS, nil, noAuthLR, auth.NoopCredentialCounter())
+		baseMux.Handle("/api/auth/", noAuthHandlers.Handler())
+		baseMux.Handle("/", mux)
+	}
+
+	// Prometheus metrics endpoint registered at /api/metrics
 	log.Println("Prometheus metrics endpoint registered at /api/metrics")
 
 	// 7. Remove stale socket.
@@ -439,6 +501,14 @@ func main() {
 		// Stop rate limiter cleanup goroutine (Finding 1).
 		if rl != nil {
 			rl.Close()
+		}
+
+		// Stop auth cleanup goroutines.
+		if sessionStore != nil {
+			sessionStore.Close()
+		}
+		if loginRateLimiter != nil {
+			loginRateLimiter.Close()
 		}
 
 		close(shutdownDone)

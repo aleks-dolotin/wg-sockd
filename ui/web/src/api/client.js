@@ -13,6 +13,7 @@ class ApiError extends Error {
 async function request(path, options = {}) {
   const url = `${BASE}${path}`
   const res = await fetch(url, {
+    credentials: 'include', // Critical: send session cookies on every request
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   })
@@ -47,6 +48,12 @@ export const fetchStats = () => request('/stats')
 
 // --- Health ---
 export const fetchHealth = () => request('/health')
+
+// --- Auth ---
+export const fetchSession = () => request('/auth/session')
+export const login = (username, password) =>
+  request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
+export const logout = () => request('/auth/logout', { method: 'POST' })
 
 // --- Connection status (from Go proxy, not agent) ---
 export const fetchConnectionStatus = () =>
