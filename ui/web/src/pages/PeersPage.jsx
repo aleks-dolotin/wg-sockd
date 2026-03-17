@@ -57,7 +57,6 @@ export default function PeersPage() {
   const { data: peers, isLoading, error } = usePeers()
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [qrPeer, setQrPeer] = useState(null)
   const { isConnected } = useConnection()
 
   const {
@@ -174,7 +173,6 @@ export default function PeersPage() {
                       </TableCell>
                       <TableCell className="text-right space-x-1">
                         <Button variant="ghost" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>
-                        <Button variant="ghost" size="sm" onClick={() => setQrPeer(peer)}>QR</Button>
                         {peer.auto_discovered && (
                           <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
                         )}
@@ -208,7 +206,6 @@ export default function PeersPage() {
                     <p className="text-xs text-muted-foreground">↓{formatBytes(peer.transfer_rx)} ↑{formatBytes(peer.transfer_tx)}</p>
                     <div className="flex gap-2 pt-1">
                       <Button variant="outline" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>
-                      <Button variant="outline" size="sm" onClick={() => setQrPeer(peer)}>QR</Button>
                       {peer.auto_discovered && (
                         <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
                       )}
@@ -240,20 +237,6 @@ export default function PeersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* QR dialog */}
-      <Dialog open={!!qrPeer} onOpenChange={() => setQrPeer(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>QR Code</DialogTitle></DialogHeader>
-          <div className="flex justify-center p-4">
-            <img src={'/api/peers/' + qrPeer?.id + '/qr'} alt="QR Code" className="w-64 h-64" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" asChild>
-              <a href={'/api/peers/' + qrPeer?.id + '/conf'} download>Download .conf</a>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
