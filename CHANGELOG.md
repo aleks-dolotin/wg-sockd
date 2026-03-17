@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.0] — 2026-03-16
+
+### Fixed
+
+- **All 50 golangci-lint issues resolved** — zero lint violations across all 3 Go modules (agent, ui, cmd/wg-sockd-ctl). Fixes 41 errcheck, 7 staticcheck (QF1012, SA4017, SA9003, QF1003), and 2 ineffassign issues that caused intermittent CI failures.
+- **WireGuard conf permissions** — `install.sh` sets `/etc/wireguard/` to `0770 root:wg-sockd` and `.conf` files to `0660`. Private keys untouched.
+- **`--dry-run` validates conf writability** — checks `conf_path` readability and parent directory writability. Prints actionable fix command on failure.
+- **Health check `conf_writable` field** — `/api/health` reports `conf_writable` status. Degrades to `"degraded"` when agent cannot write to conf directory.
+
+### Added
+
+- **Pre-commit git hook** — `scripts/pre-commit` runs golangci-lint + go test on changed modules before each commit
+- **Makefile targets** — `make lint` (all Go modules), `make lint-all` (Go + ESLint), `make setup-hooks` (install pre-commit hook)
+- **MIT LICENSE file**
+- **WireGuard permissions documentation** — deployment guide, README prerequisites, and security sections
+
+### Changed
+
+- Bump Helm chart version and appVersion to 0.5.0
+- Bump image tag to 0.5.0
+
 ## [v0.4.0] — 2026-03-16
 
 ### Added
