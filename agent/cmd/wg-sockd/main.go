@@ -544,7 +544,7 @@ func runDryRun(cfg *config.Config) int {
 			fmt.Printf("  ❌ WireGuard config %s is not readable: %v\n", cfg.ConfPath, err)
 			exitCode = 1
 		} else {
-			f.Close()
+			_ = f.Close()
 			fmt.Printf("  ✅ WireGuard config readable: %s\n", cfg.ConfPath)
 		}
 
@@ -557,8 +557,8 @@ func runDryRun(cfg *config.Config) int {
 			fmt.Println("     Fix: sudo chown root:wg-sockd /etc/wireguard && sudo chmod 770 /etc/wireguard")
 			exitCode = 1
 		} else {
-			f.Close()
-			os.Remove(tmpFile)
+			_ = f.Close()
+			_ = os.Remove(tmpFile)
 			fmt.Printf("  ✅ WireGuard config directory writable: %s\n", confDir)
 		}
 	}

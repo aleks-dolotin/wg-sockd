@@ -80,8 +80,8 @@ func (c *Checker) Check() api.HealthResponse {
 		tmpFile := filepath.Join(confDir, ".wg-sockd-health-check")
 		writable := false
 		if f, err := os.Create(tmpFile); err == nil {
-			f.Close()
-			os.Remove(tmpFile)
+			_ = f.Close()
+			_ = os.Remove(tmpFile)
 			writable = true
 		}
 		resp.ConfWritable = &writable
