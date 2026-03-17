@@ -203,7 +203,7 @@ func peersList(client *http.Client) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkError(resp); err != nil {
 		return err
@@ -215,7 +215,7 @@ func peersList(client *http.Client) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tPUBLIC_KEY\tALLOWED_IPS\tSTATUS\tRX\tTX")
+	_, _ = fmt.Fprintln(w, "NAME\tPUBLIC_KEY\tALLOWED_IPS\tSTATUS\tRX\tTX")
 
 	for _, p := range peers {
 		name := p.FriendlyName
@@ -238,12 +238,12 @@ func peersList(client *http.Client) error {
 			status = "disabled"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			name, key, ips, status,
 			humanBytes(p.TransferRx), humanBytes(p.TransferTx))
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	return nil
 }
 
@@ -252,7 +252,7 @@ func peersAdd(client *http.Client, args []string) error {
 	name := fs.String("name", "", "friendly name for the peer (required)")
 	profile := fs.String("profile", "", "profile name")
 	allowedIPs := fs.String("allowed-ips", "", "comma-separated allowed IPs (alternative to --profile)")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if *name == "" {
 		return fmt.Errorf("--name is required")
@@ -273,7 +273,7 @@ func peersAdd(client *http.Client, args []string) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkError(resp); err != nil {
 		return err
@@ -295,7 +295,7 @@ func peersDelete(client *http.Client, args []string) error {
 	fs := flag.NewFlagSet("peers delete", flag.ExitOnError)
 	id := fs.Int("id", 0, "peer ID to delete (required)")
 	yes := fs.Bool("yes", false, "skip confirmation prompt")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if *id == 0 {
 		return fmt.Errorf("--id is required")
@@ -316,7 +316,7 @@ func peersDelete(client *http.Client, args []string) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkError(resp); err != nil {
 		return err
@@ -341,7 +341,7 @@ func peersApprove(client *http.Client, args []string) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkError(resp); err != nil {
 		return err
@@ -375,7 +375,7 @@ func peersApprove(client *http.Client, args []string) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer approveResp.Body.Close()
+	defer func() { _ = approveResp.Body.Close() }()
 
 	if err := checkError(approveResp); err != nil {
 		return err
@@ -409,7 +409,7 @@ func profilesList(client *http.Client) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkError(resp); err != nil {
 		return err
@@ -421,7 +421,7 @@ func profilesList(client *http.Client) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tALLOWED_IPS\tPEERS\tDEFAULT")
+	_, _ = fmt.Fprintln(w, "NAME\tALLOWED_IPS\tPEERS\tDEFAULT")
 
 	for _, p := range profiles {
 		ips := strings.Join(p.ResolvedAllowedIPs, ",")
@@ -432,11 +432,11 @@ func profilesList(client *http.Client) error {
 		if p.IsDefault {
 			def = "✓"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
 			p.Name, ips, p.PeerCount, def)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	return nil
 }
 
@@ -459,5 +459,4 @@ func humanBytes(b int64) string {
 		return fmt.Sprintf("%dB", b)
 	}
 }
-
 

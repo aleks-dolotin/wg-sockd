@@ -67,13 +67,13 @@ func copyFileSync(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("opening source: %w", err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("creating destination: %w", err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return fmt.Errorf("copying data: %w", err)
@@ -127,9 +127,9 @@ func RecoverDB(dbPath string, confPath string, parseComments func(string) (map[s
 		if err == nil && len(meta) > 0 {
 			log.Printf("INFO: attempting recovery from conf comments (%d peers found)...", len(meta))
 			// Remove corrupted DB.
-			os.Remove(dbPath)
-			os.Remove(dbPath + "-wal")
-			os.Remove(dbPath + "-shm")
+			_ = os.Remove(dbPath)
+			_ = os.Remove(dbPath + "-wal")
+			_ = os.Remove(dbPath + "-shm")
 
 			newDB, err := NewDB(dbPath)
 			if err != nil {
@@ -151,7 +151,7 @@ func RecoverDB(dbPath string, confPath string, parseComments func(string) (map[s
 						recovered++
 					}
 				}
-				newDB.Close()
+				_ = newDB.Close()
 				log.Printf("INFO: recovered %d of %d peers from conf comments", recovered, len(meta))
 				if recovered > 0 {
 					log.Println("WARN: recovered from conf comments (profile assignments lost, metadata preserved)")
@@ -165,9 +165,9 @@ func RecoverDB(dbPath string, confPath string, parseComments func(string) (map[s
 
 	// Level 3: Clean start.
 	log.Println("WARN: clean database created (all metadata lost, peers recovered from kernel state)")
-	os.Remove(dbPath)
-	os.Remove(dbPath + "-wal")
-	os.Remove(dbPath + "-shm")
+	_ = os.Remove(dbPath)
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
 	return "clean", nil
 }
 
@@ -183,7 +183,7 @@ func isDBHealthy(dbPath string) bool {
 	if err != nil {
 		return false
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var result string
 	if err := db.conn.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil {

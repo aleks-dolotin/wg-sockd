@@ -96,9 +96,7 @@ func TestCreateProfile_Success(t *testing.T) {
 	if resp.Name != "my-profile" {
 		t.Errorf("Name: got %q", resp.Name)
 	}
-	if !resp.IsDefault == true {
-		// Created via API should NOT be default.
-	}
+	// Created via API should NOT be default.
 	if resp.IsDefault {
 		t.Error("API-created profile should have IsDefault=false")
 	}

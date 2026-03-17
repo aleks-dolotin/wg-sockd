@@ -56,11 +56,12 @@ func TestRateLimiter_ExceedLimit(t *testing.T) {
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 
-		if rr.Code == http.StatusOK {
+		switch rr.Code {
+		case http.StatusOK:
 			okCount++
-		} else if rr.Code == http.StatusTooManyRequests {
+		case http.StatusTooManyRequests:
 			rejectedCount++
-		} else {
+		default:
 			t.Errorf("request %d: unexpected status %d", i, rr.Code)
 		}
 	}

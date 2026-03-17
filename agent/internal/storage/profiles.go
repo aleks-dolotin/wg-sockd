@@ -36,7 +36,7 @@ func (db *DB) ListProfiles() ([]Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing profiles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var profiles []Profile
 	for rows.Next() {
@@ -156,7 +156,7 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 	committed := false
 	defer func() {
 		if !committed {
-			db.conn.Exec("ROLLBACK")
+			_, _ = db.conn.Exec("ROLLBACK")
 		}
 	}()
 

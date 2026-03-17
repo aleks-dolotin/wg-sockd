@@ -22,10 +22,6 @@ func TestSPAHandler(t *testing.T) {
 	staticFS := http.Dir(dir)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cleanPath := strings.TrimPrefix(r.URL.Path, "/")
-		if cleanPath == "" {
-			cleanPath = "index.html"
-		}
 
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
@@ -89,10 +85,7 @@ func TestPathCleanSecurity(t *testing.T) {
 
 	for _, p := range tests {
 		cleaned := filepath.Clean(p)
-		if strings.Contains(cleaned, "..") && cleaned != ".." && cleaned != "/" {
-			// filepath.Clean should resolve these
-		}
-		// Just ensure no panic
+		// filepath.Clean should resolve traversal attempts — just ensure no panic.
 		_ = cleaned
 	}
 }

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs golangci-lint on all Go modules and ESLint on React UI.
+# Install with: make setup-hooks
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+echo "🔍 Running pre-commit checks..."
+
+FAILED=0
+
+# --- Go lint ---
+for mod in agent ui cmd/wg-sockd-ctl; do
+    if ! git diff --cached --name-only | grep -q "^${mod}/\|^\.golangci"; then
+        continue
+    fi
+    echo "  ▶ golangci-lint: ${mod}/"
+    if ! (cd "${mod}" && golangci-lint run ./... 2>&1); then
+        echo -e "  ${RED}✗ ${mod}/ lint failed${NC}"
+        FAILED=1
+    else
+        echo -e "  ${GREEN}✓ ${mod}/ lint passed${NC}"
+    fi
+done
+
+# --- ESLint (only if ui/web files changed) ---
+if git diff --cached --name-only | grep -q "^ui/web/"; then
+    echo "  ▶ eslint: ui/web/"
+    if ! (cd ui/web && npx eslint . --max-warnings 0 2>&1); then
+        echo -e "  ${RED}✗ ui/web/ eslint failed${NC}"
+        FAILED=1
+    else
+        echo -e "  ${GREEN}✓ ui/web/ eslint passed${NC}"
+    fi
+fi
+
+# --- Go tests (fast — only changed modules) ---
+for mod in agent ui cmd/wg-sockd-ctl; do
+    if ! git diff --cached --name-only | grep -q "^${mod}/"; then
+        continue
+    fi
+    echo "  ▶ go test: ${mod}/"
+    if ! (cd "${mod}" && go test ./... 2>&1); then
+        echo -e "  ${RED}✗ ${mod}/ tests failed${NC}"
+        FAILED=1
+    else
+        echo -e "  ${GREEN}✓ ${mod}/ tests passed${NC}"
+    fi
+done
+
+if [ $FAILED -ne 0 ]; then
+    echo ""
+    echo -e "${RED}❌ Pre-commit checks failed. Fix issues above or use --no-verify to skip.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ All pre-commit checks passed${NC}"
+

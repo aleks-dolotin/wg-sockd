@@ -39,7 +39,7 @@ func (db *DB) ListPeers() ([]Peer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing peers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var peers []Peer
 	for rows.Next() {
@@ -187,7 +187,7 @@ func (db *DB) CreatePeersBatch(peers []*Peer) ([]int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("beginning batch transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	ids := make([]int64, 0, len(peers))
 	for _, p := range peers {
@@ -226,7 +226,7 @@ func (db *DB) CountPeersPerProfile() (map[string]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("counting peers per profile: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	counts := make(map[string]int)
 	for rows.Next() {

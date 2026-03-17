@@ -34,20 +34,20 @@ func NewDB(dbPath string) (*DB, error) {
 
 	// Enable WAL mode for better concurrent read performance.
 	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("enabling WAL mode: %w", err)
 	}
 
 	// Set busy timeout so concurrent operations queue briefly instead of
 	// immediately failing with "database is locked" (default is 0ms).
 	if _, err := conn.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("setting busy_timeout: %w", err)
 	}
 
 	// Enable foreign keys.
 	if _, err := conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
@@ -62,7 +62,7 @@ func NewDB(dbPath string) (*DB, error) {
 	db := &DB{conn: conn}
 
 	if err := db.runMigrations(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 

@@ -134,11 +134,11 @@ func (m *Monitor) recreate() {
 	// We must ensure the old listener is fully closed BEFORE creating the new
 	// socket, otherwise the old Close could delete the newly created file.
 	if m.server != nil {
-		m.server.Close()
+		_ = m.server.Close()
 	}
 
 	// Remove stale socket file if any remnant exists (belt-and-suspenders).
-	os.Remove(m.socketPath)
+	_ = os.Remove(m.socketPath)
 
 	// Create new socket.
 	listener, err := m.createSocket()

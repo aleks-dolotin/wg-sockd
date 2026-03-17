@@ -997,7 +997,7 @@ PersistentKeepalive = 25
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.conf", peer.FriendlyName))
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(conf))
+	_, _ = w.Write([]byte(conf))
 }
 
 // GetPeerQR handles GET /api/peers/{id}/qr.
@@ -1055,7 +1055,7 @@ PersistentKeepalive = 25
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%s-qr.png", peer.FriendlyName))
 	w.WriteHeader(http.StatusOK)
-	w.Write(png)
+	_, _ = w.Write(png)
 }
 
 // Health handles GET /api/health.

@@ -203,7 +203,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: opening database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	log.Println("SQLite initialized")
 
 	// 2a. Start hourly backup loop (first backup after 5 minutes).
@@ -236,7 +236,7 @@ func main() {
 			log.Printf("WARNING: wgctrl init failed: %v — starting in degraded mode", err)
 			wgClient = &degradedWgClient{}
 		} else {
-			defer wgClient.Close()
+			defer func() { _ = wgClient.Close() }()
 			log.Println("WireGuard client initialized")
 		}
 	}
@@ -353,7 +353,6 @@ func main() {
 					log.Fatal("FATAL: --serve-ui requires building with -tags embed_ui")
 				}
 				log.Println("WARNING: serve_ui=true in config but no embedded UI (lean build) — UI disabled")
-				effectiveServeUI = false
 			} else {
 				subFS, err := fs.Sub(*embeddedUIFS, "ui_dist")
 				if err != nil {
@@ -380,7 +379,7 @@ func main() {
 				// Try serving the static file.
 				f, err := staticFS.Open(cleanPath)
 				if err == nil {
-					f.Close()
+					_ = f.Close()
 					http.FileServer(staticFS).ServeHTTP(w, r)
 					return
 				}
@@ -418,9 +417,9 @@ func main() {
 		// Flush pending debounced conf writes before closing servers.
 		dw.Close()
 
-		sm.Shutdown(shutdownCtx)
+		_ = sm.Shutdown(shutdownCtx)
 		if tcpServer != nil {
-			tcpServer.Shutdown(shutdownCtx)
+			_ = tcpServer.Shutdown(shutdownCtx)
 		}
 
 		// Stop rate limiter cleanup goroutine (Finding 1).
@@ -506,8 +505,8 @@ func runDryRun(cfg *config.Config) int {
 			fmt.Printf("  ❌ data directory %s exists but is not writable: %v\n", dbDir, err)
 			exitCode = 1
 		} else {
-			f.Close()
-			os.Remove(tmpFile)
+			_ = f.Close()
+			_ = os.Remove(tmpFile)
 			fmt.Printf("  ✅ data directory writable: %s\n", dbDir)
 		}
 	}
@@ -594,7 +593,7 @@ func watchdogLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			daemon.SdNotify(false, daemon.SdNotifyWatchdog)
+			_, _ = daemon.SdNotify(false, daemon.SdNotifyWatchdog)
 		}
 	}
 }

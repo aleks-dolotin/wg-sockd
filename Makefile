@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui dev
+.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui dev lint lint-all setup-hooks
 
 BINARY := wg-sockd
 BIN_DIR := bin
@@ -95,6 +95,22 @@ test-ctl:
 
 # Run all tests across all modules
 test-all: test test-ui test-ctl
+
+# Lint all Go modules with golangci-lint
+lint:
+	cd agent && golangci-lint run ./...
+	cd ui && golangci-lint run ./...
+	cd cmd/wg-sockd-ctl && golangci-lint run ./...
+
+# Lint all (Go + ESLint)
+lint-all: lint
+	cd ui/web && npx eslint .
+
+# Install git pre-commit hook
+setup-hooks:
+	@cp scripts/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "Pre-commit hook installed"
 
 # Local development mode — API-only, no WireGuard needed (macOS degraded OK).
 # Uses ./tmp/ for isolated dev config and data.

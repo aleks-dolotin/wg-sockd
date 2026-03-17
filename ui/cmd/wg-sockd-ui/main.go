@@ -49,7 +49,7 @@ func main() {
 		log.Println("Shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(shutdownCtx)
+		_ = server.Shutdown(shutdownCtx)
 	}()
 
 	log.Printf("wg-sockd-ui ready on %s", *listenAddr)

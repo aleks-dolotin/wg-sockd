@@ -160,21 +160,21 @@ func WriteConf(path string, peers []PeerConf) error {
 		// Metadata comments — sanitize to prevent config injection.
 		if p.FriendlyName != "" {
 			safeName := sanitizeConfValue(p.FriendlyName)
-			buf.WriteString(fmt.Sprintf("# wg-sockd:name=%s\n", safeName))
+			fmt.Fprintf(&buf, "# wg-sockd:name=%s\n", safeName)
 		}
 		if !p.CreatedAt.IsZero() {
-			buf.WriteString(fmt.Sprintf("# wg-sockd:created=%s\n", p.CreatedAt.Format("2006-01-02")))
+			fmt.Fprintf(&buf, "# wg-sockd:created=%s\n", p.CreatedAt.Format("2006-01-02"))
 		}
 		if p.Notes != "" {
 			safeNotes := sanitizeConfValue(p.Notes)
-			buf.WriteString(fmt.Sprintf("# wg-sockd:notes=%s\n", safeNotes))
+			fmt.Fprintf(&buf, "# wg-sockd:notes=%s\n", safeNotes)
 		}
 
 		buf.WriteString("[Peer]\n")
-		buf.WriteString(fmt.Sprintf("PublicKey = %s\n", p.PublicKey))
-		buf.WriteString(fmt.Sprintf("AllowedIPs = %s\n", p.AllowedIPs))
+		fmt.Fprintf(&buf, "PublicKey = %s\n", p.PublicKey)
+		fmt.Fprintf(&buf, "AllowedIPs = %s\n", p.AllowedIPs)
 		if p.PresharedKey != "" {
-			buf.WriteString(fmt.Sprintf("PresharedKey = %s\n", p.PresharedKey))
+			fmt.Fprintf(&buf, "PresharedKey = %s\n", p.PresharedKey)
 		}
 	}
 
@@ -184,7 +184,7 @@ func WriteConf(path string, peers []PeerConf) error {
 		return fmt.Errorf("writing temp conf: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // cleanup on failure
+		_ = os.Remove(tmpPath) // cleanup on failure
 		return fmt.Errorf("renaming conf: %w", err)
 	}
 
@@ -203,7 +203,7 @@ func ParseConfComments(path string) (map[string]PeerMeta, error) {
 		}
 		return nil, fmt.Errorf("opening conf for comment parsing: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	result := make(map[string]PeerMeta)
 	var currentMeta PeerMeta
@@ -251,11 +251,11 @@ func ParseConfComments(path string) (map[string]PeerMeta, error) {
 			continue
 		}
 
-		// Any non-comment, non-PublicKey line resets pending meta tracking.
-		if !strings.HasPrefix(line, "#") && line != "" && line != "[Interface]" {
-			if hasMeta && !strings.HasPrefix(line, "PublicKey") {
-				// We're inside a peer section, meta already associated or not applicable.
-			}
+		// Any non-comment, non-section line after [Peer] resets pending meta.
+		if !strings.HasPrefix(line, "#") && line != "" && line != "[Interface]" &&
+			hasMeta && !strings.HasPrefix(line, "PublicKey") {
+			// Inside a peer section, meta already associated or not applicable.
+			hasMeta = false
 		}
 	}
 
