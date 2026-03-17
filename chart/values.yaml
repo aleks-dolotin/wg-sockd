@@ -49,3 +49,9 @@ resources: {}
   #   cpu: 50m
   #   memory: 32Mi
 
+
+# Prometheus metrics scraping
+prometheus:
+  enabled: false
+  path: /api/metrics
+  port: 8080

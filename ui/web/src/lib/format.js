@@ -26,13 +26,62 @@ export function isPeerOnline(latestHandshake) {
 }
 
 /**
- * Validate a CIDR string (basic client-side check).
+ * Format a timestamp as relative time ("2 min ago", "3 hours ago").
  */
-export function isValidCIDR(cidr) {
-  const re = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/
-  if (!re.test(cidr)) return false
-  const [ip, prefix] = cidr.split('/')
-  const parts = ip.split('.').map(Number)
-  return parts.every(p => p >= 0 && p <= 255) && Number(prefix) >= 0 && Number(prefix) <= 32
+export function formatRelativeTime(timestamp) {
+  if (!timestamp) return 'never'
+  const diff = Date.now() - new Date(timestamp).getTime()
+  if (diff < 0) return 'just now'
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
+/**
+ * Validate a CIDR string — supports both IPv4 and IPv6.
+ */
+export function isValidCIDR(cidr) {
+  if (!cidr || typeof cidr !== 'string') return false
+  const slash = cidr.lastIndexOf('/')
+  if (slash === -1) return false
+
+  const ip = cidr.slice(0, slash)
+  const prefixStr = cidr.slice(slash + 1)
+  if (!/^\d{1,3}$/.test(prefixStr)) return false
+  const prefix = Number(prefixStr)
+
+  // IPv4 check
+  const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}$/
+  if (ipv4Re.test(ip)) {
+    const parts = ip.split('.').map(Number)
+    return parts.every(p => p >= 0 && p <= 255) && prefix >= 0 && prefix <= 32
+  }
+
+  // IPv6 check — must contain at least one colon
+  if (!ip.includes(':')) return false
+  if (prefix < 0 || prefix > 128) return false
+
+  // Expand :: shorthand for validation
+  const parts = ip.split('::')
+  if (parts.length > 2) return false // only one :: allowed
+
+  const left = parts[0] ? parts[0].split(':') : []
+  const right = parts.length === 2 && parts[1] ? parts[1].split(':') : []
+  const totalGroups = left.length + right.length
+
+  if (parts.length === 2) {
+    // With :: — total groups must be ≤ 7 (:: expands to fill up to 8)
+    if (totalGroups > 7) return false
+  } else {
+    // Without :: — must be exactly 8 groups
+    if (totalGroups !== 8) return false
+  }
+
+  const hexGroupRe = /^[0-9a-fA-F]{1,4}$/
+  return [...left, ...right].every(g => hexGroupRe.test(g))
+}

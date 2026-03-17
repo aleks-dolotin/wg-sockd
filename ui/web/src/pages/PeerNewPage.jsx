@@ -5,6 +5,7 @@ import { useProfiles } from '@/api/hooks'
 import { createPeer } from '@/api/client'
 import { isValidCIDR } from '@/lib/format'
 import { useConnection } from '@/components/ConnectionContext'
+import { usePageTitle } from '@/hooks/usePageTitle'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,8 +13,10 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 
 export default function PeerNewPage() {
+  usePageTitle('Add Peer')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: profiles } = useProfiles()
@@ -28,6 +31,7 @@ export default function PeerNewPage() {
   const createMut = useMutation({
     mutationFn: (data) => createPeer(data),
     onSuccess: (data) => { queryClient.invalidateQueries({ queryKey: ['peers'] }); setResult(data) },
+    onError: (err) => toast.error(err.message),
   })
 
   const selectedProfile = profiles?.find(p => p.name === profile)
@@ -77,7 +81,7 @@ export default function PeerNewPage() {
                   {(selectedProfile.resolved_allowed_ips?.length || 0) > 10 && (
                     <Badge variant="secondary">+{selectedProfile.resolved_allowed_ips.length - 10} more</Badge>)}
                 </div>
-                {selectedProfile.route_warning && <p className="text-orange-600">{selectedProfile.route_warning}</p>}
+                {selectedProfile.route_warning && <p className="text-amber-600 dark:text-amber-400">{selectedProfile.route_warning}</p>}
               </CardContent></Card>)}
           {isCustom && (<div><label className="text-sm font-medium">Allowed IPs (comma-separated CIDRs)</label>
             <Input value={customIPs} onChange={e => setCustomIPs(e.target.value)} placeholder="10.0.0.0/24, 192.168.1.0/24" /></div>)}
@@ -100,7 +104,7 @@ export default function PeerNewPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" asChild><a href={'/api/peers/' + result.id + '/conf'} download>Download .conf</a></Button>
-              <Button onClick={() => navigate('/peers')}>Done</Button>
+              <Button onClick={() => { toast.success(`Peer ${name} created`); navigate('/peers') }}>Done</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

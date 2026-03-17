@@ -22,7 +22,7 @@ export default function UnknownPeerAlert() {
           <strong>{count} unknown peer{count > 1 ? 's' : ''} detected</strong> — review required for security.
         </span>
         <div className="flex gap-2 ml-4 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => navigate('/?filter=auto_discovered')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/peers?filter=auto_discovered')}>
             Review
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setDismissedCount(count)}>

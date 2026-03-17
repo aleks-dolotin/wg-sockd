@@ -30,6 +30,11 @@ import (
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/sockmon"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/metrics"
 )
 
 func main() {
@@ -293,6 +298,15 @@ func main() {
 	}
 	mux := api.NewRateLimitedRouter(handlers, rl, diskChecker)
 
+	// Prometheus metrics — registered on a wrapper mux outside rate limiting.
+	metricsCollector := metrics.New(wgClient, db, cfg.Interface)
+	metricsRegistry := prometheus.NewRegistry()
+	metricsRegistry.MustRegister(metricsCollector)
+	baseMux := http.NewServeMux()
+	baseMux.Handle("/api/metrics", promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
+	baseMux.Handle("/", mux) // all other routes go through rate-limited router
+	log.Println("Prometheus metrics endpoint registered at /api/metrics")
+
 	// 7. Remove stale socket.
 	if err := os.Remove(cfg.SocketPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("WARNING: removing stale socket: %v", err)
@@ -304,7 +318,7 @@ func main() {
 	}
 
 	// 9. Create socket monitor with self-healing (FM-3).
-	sm := sockmon.New(cfg.SocketPath, mux, middleware.ConnContext)
+	sm := sockmon.New(cfg.SocketPath, baseMux, middleware.ConnContext)
 	if err := sm.Start(); err != nil {
 		log.Fatalf("FATAL: starting socket server: %v", err)
 	}
@@ -337,7 +351,7 @@ func main() {
 		uiMux := http.NewServeMux()
 
 		// Mount all API routes on the TCP mux too.
-		uiMux.Handle("/api/", mux)
+		uiMux.Handle("/api/", baseMux)
 
 		// Determine static file source.
 		var staticFS http.FileSystem
