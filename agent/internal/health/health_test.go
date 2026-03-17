@@ -3,6 +3,8 @@ package health
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
@@ -114,3 +116,64 @@ func TestCheck_RecoveredFrom(t *testing.T) {
 		t.Errorf("SQLiteRecoveredFrom: got %q, want %q", resp.SQLiteRecoveredFrom, "conf-comments")
 	}
 }
+
+func TestCheck_ConfWritable(t *testing.T) {
+	db, err := storage.NewDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	dir := t.TempDir()
+	confPath := filepath.Join(dir, "wg0.conf")
+	os.WriteFile(confPath, []byte("[Interface]\n"), 0644)
+
+	c := NewChecker(&mockWgClient{}, db, "wg0")
+	c.SetConfPath(confPath)
+	resp := c.Check()
+
+	if resp.ConfWritable == nil {
+		t.Fatal("ConfWritable should not be nil when confPath is set")
+	}
+	if !*resp.ConfWritable {
+		t.Error("ConfWritable should be true for writable directory")
+	}
+	if resp.Status != "ok" {
+		t.Errorf("Status: got %q, want %q", resp.Status, "ok")
+	}
+}
+
+func TestCheck_ConfNotWritable(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
+
+	db, err := storage.NewDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	dir := t.TempDir()
+	confDir := filepath.Join(dir, "readonly")
+	os.MkdirAll(confDir, 0750)
+	confPath := filepath.Join(confDir, "wg0.conf")
+	os.WriteFile(confPath, []byte("[Interface]\n"), 0644)
+	os.Chmod(confDir, 0500)
+	t.Cleanup(func() { os.Chmod(confDir, 0700) })
+
+	c := NewChecker(&mockWgClient{}, db, "wg0")
+	c.SetConfPath(confPath)
+	resp := c.Check()
+
+	if resp.ConfWritable == nil {
+		t.Fatal("ConfWritable should not be nil when confPath is set")
+	}
+	if *resp.ConfWritable {
+		t.Error("ConfWritable should be false for read-only directory")
+	}
+	if resp.Status != "degraded" {
+		t.Errorf("Status: got %q, want %q", resp.Status, "degraded")
+	}
+}
+

@@ -538,6 +538,29 @@ func runDryRun(cfg *config.Config) int {
 		}
 	} else {
 		fmt.Printf("  ✅ WireGuard config exists: %s\n", cfg.ConfPath)
+
+		// 3e-i. Check conf file is readable.
+		if f, err := os.Open(cfg.ConfPath); err != nil {
+			fmt.Printf("  ❌ WireGuard config %s is not readable: %v\n", cfg.ConfPath, err)
+			exitCode = 1
+		} else {
+			f.Close()
+			fmt.Printf("  ✅ WireGuard config readable: %s\n", cfg.ConfPath)
+		}
+
+		// 3e-ii. Check conf file parent directory is writable (needed for atomic tmp+rename).
+		confDir := filepath.Dir(cfg.ConfPath)
+		tmpFile := filepath.Join(confDir, ".wg-sockd-dry-run-conf-check")
+		if f, err := os.Create(tmpFile); err != nil {
+			fmt.Printf("  ❌ WireGuard config directory %s is not writable: %v\n", confDir, err)
+			fmt.Println("     The agent writes wg0.conf.tmp and renames atomically.")
+			fmt.Println("     Fix: sudo chown root:wg-sockd /etc/wireguard && sudo chmod 770 /etc/wireguard")
+			exitCode = 1
+		} else {
+			f.Close()
+			os.Remove(tmpFile)
+			fmt.Printf("  ✅ WireGuard config directory writable: %s\n", confDir)
+		}
 	}
 
 	fmt.Println()

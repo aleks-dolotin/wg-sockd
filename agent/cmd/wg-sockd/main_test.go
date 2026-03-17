@@ -212,3 +212,38 @@ func TestDryRun_NotWritableDataDir(t *testing.T) {
 	}
 }
 
+func TestDryRun_ConfNotWritable(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
+
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "data")
+	os.MkdirAll(dbDir, 0750)
+	sockDir := filepath.Join(dir, "run")
+	os.MkdirAll(sockDir, 0750)
+
+	// Create conf in a read-only directory.
+	confDir := filepath.Join(dir, "wg-readonly")
+	os.MkdirAll(confDir, 0750)
+	confPath := filepath.Join(confDir, "wg0.conf")
+	os.WriteFile(confPath, []byte("[Interface]\n"), 0644)
+	// Make the directory read-only so tmp file creation fails.
+	os.Chmod(confDir, 0500)
+	t.Cleanup(func() { os.Chmod(confDir, 0700) })
+
+	cfg := &config.Config{
+		Interface:  "wg0",
+		SocketPath: filepath.Join(sockDir, "test.sock"),
+		DBPath:     filepath.Join(dbDir, "test.db"),
+		ConfPath:   confPath,
+		UIListen:   "127.0.0.1:8080",
+		PeerLimit:  250,
+	}
+
+	code := runDryRun(cfg)
+	if code != 1 {
+		t.Errorf("expected exit code 1 for non-writable conf directory, got %d", code)
+	}
+}
+

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1079,6 +1081,20 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		resp.Status = "degraded"
 	} else {
 		resp.SQLite = "ok"
+	}
+
+	// Check conf writability — can we create a temp file alongside wg0.conf?
+	confDir := filepath.Dir(h.cfg.ConfPath)
+	tmpFile := filepath.Join(confDir, ".wg-sockd-health-check")
+	writable := false
+	if f, err := os.Create(tmpFile); err == nil {
+		f.Close()
+		os.Remove(tmpFile)
+		writable = true
+	}
+	resp.ConfWritable = &writable
+	if !writable {
+		resp.Status = "degraded"
 	}
 
 	status := http.StatusOK

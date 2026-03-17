@@ -237,6 +237,24 @@ fi
 # Ensure user is in the group
 usermod -aG "$GROUP_NAME" "$USER_NAME" 2>/dev/null || true
 
+# --- Task 5.13: Set /etc/wireguard permissions for wg-sockd user ---
+# WireGuard defaults to 700 root:root. The agent runs as wg-sockd and needs
+# read/write access to conf_path and its parent directory (atomic tmp+rename).
+if [ -d /etc/wireguard ]; then
+    info "Setting /etc/wireguard permissions for ${USER_NAME}..."
+    chown root:"${GROUP_NAME}" /etc/wireguard
+    chmod 0770 /etc/wireguard
+    # Fix permissions on existing .conf files only (not private keys).
+    for conf in /etc/wireguard/*.conf; do
+        [ -f "$conf" ] || continue
+        chown root:"${GROUP_NAME}" "$conf"
+        chmod 0660 "$conf"
+    done
+    info "/etc/wireguard permissions set (0770 root:${GROUP_NAME})"
+else
+    warn "/etc/wireguard does not exist — will need permissions set after WireGuard is configured"
+fi
+
 # --- Task 5.5: Download or copy binary (two modes) ---
 install_binary() {
     local name="$1"

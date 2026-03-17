@@ -58,6 +58,7 @@ type HealthResponse struct {
 	SQLite              string `json:"sqlite"`
 	SQLiteRecoveredFrom string `json:"sqlite_recovered_from,omitempty"`
 	DiskOK              *bool  `json:"disk_ok,omitempty"`
+	ConfWritable        *bool  `json:"conf_writable,omitempty"`
 }
 
 // --- Stats Types ---

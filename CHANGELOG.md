@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **WireGuard permissions documentation** — `/etc/wireguard/` must be `0770 root:wg-sockd` for the agent to create peers. WireGuard defaults to `700 root:root` which blocks all write operations. Documented in deployment guide, README prerequisites, and security sections with comparison to wg-easy's root-in-Docker approach.
+- **MIT LICENSE file** — proper license file in repo root, GitHub sidebar now shows MIT
+
+### Fixed
+
+- **`install.sh` sets `/etc/wireguard/` permissions** — `chown root:wg-sockd` + `chmod 770` on directory, `chmod 660` on `.conf` files. Private key files are not touched. Fresh installs now have a working write path out of the box.
+- **`--dry-run` validates conf writability** — checks that `conf_path` is readable and its parent directory is writable (needed for atomic `tmp+rename`). Prints actionable fix command on failure.
+- **Health check reports `conf_writable`** — new `conf_writable` field in `/api/health` response. Status degrades to `"degraded"` when the agent cannot write to the WireGuard config directory. Eliminates the false-positive `"status":"ok"` when write path is broken.
 
 ### Changed
 
@@ -15,9 +22,7 @@ All notable changes to this project will be documented in this file.
 
 ### Known Issues
 
-- **`install.sh` does not set `/etc/wireguard/` permissions** — fresh installs have a broken write path. Peer creation returns 500, reconciler spams `conf rewrite failed` warnings, but health endpoint reports `"status":"ok"` (false positive). **Workaround:** `sudo chown root:wg-sockd /etc/wireguard && sudo chmod 770 /etc/wireguard && sudo chown root:wg-sockd /etc/wireguard/wg0.conf && sudo chmod 660 /etc/wireguard/wg0.conf`
-- **`--dry-run` does not validate write access** to `conf_path` or its parent directory
-- **`wg-quick save` resets permissions** — `umask 077` reverts `wg0.conf` to `600 root:root`
+- **`wg-quick save` resets permissions** — `umask 077` reverts `wg0.conf` to `600 root:root`. Re-run `install.sh` or manually fix after `wg-quick save`.
 
 ## [v0.3.0] — 2026-03-17
 
