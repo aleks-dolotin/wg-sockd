@@ -77,11 +77,6 @@ export default function PeerActionsBar({ peer }) {
         >
           Rotate Keys
         </Button>
-        <Button variant="outline" asChild>
-          <a href={`/api/peers/${peer.id}/conf`} download={`${peer.friendly_name || 'peer'}.conf`}>
-            Download .conf
-          </a>
-        </Button>
         <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)} disabled={!isConnected}>
           Delete
         </Button>
