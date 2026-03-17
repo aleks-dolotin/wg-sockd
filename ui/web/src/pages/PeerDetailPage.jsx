@@ -157,7 +157,7 @@ export default function PeerDetailPage() {
             >
               <option value="">No profile (custom IPs)</option>
               {(profiles || []).map(p => (
-                <option key={p.name} value={p.name}>{p.display_name || p.name}</option>
+                <option key={p.name} value={p.name}>{p.name}</option>
               ))}
             </select>
           </div>

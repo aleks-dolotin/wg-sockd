@@ -36,7 +36,6 @@ func TestListProfiles_WithResolvedAllowedIPs(t *testing.T) {
 	// Create a profile with exclusions.
 	p := &storage.Profile{
 		Name:        "internet-only",
-		DisplayName: "Internet Only",
 		AllowedIPs:  []string{"0.0.0.0/0", "::/0"},
 		ExcludeIPs:  []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		Description: "Internet through VPN, no local access",
@@ -64,9 +63,6 @@ func TestListProfiles_WithResolvedAllowedIPs(t *testing.T) {
 	if pr.Name != "internet-only" {
 		t.Errorf("Name: got %q, want %q", pr.Name, "internet-only")
 	}
-	if pr.DisplayName != "Internet Only" {
-		t.Errorf("DisplayName: got %q", pr.DisplayName)
-	}
 	// resolved_allowed_ips should NOT contain the excluded ranges.
 	for _, r := range pr.ResolvedAllowedIPs {
 		if r == "10.0.0.0/8" || r == "172.16.0.0/12" || r == "192.168.0.0/16" {
@@ -85,7 +81,7 @@ func TestCreateProfile_Success(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"name":"my-profile","display_name":"My Profile","allowed_ips":["10.0.0.0/24"],"description":"test"}`
+	body := `{"name":"my-profile","allowed_ips":["10.0.0.0/24"],"description":"test"}`
 	req := httptest.NewRequest("POST", "/api/profiles", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -99,9 +95,6 @@ func TestCreateProfile_Success(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Name != "my-profile" {
 		t.Errorf("Name: got %q", resp.Name)
-	}
-	if resp.DisplayName != "My Profile" {
-		t.Errorf("DisplayName: got %q", resp.DisplayName)
 	}
 	if !resp.IsDefault == true {
 		// Created via API should NOT be default.
@@ -118,7 +111,7 @@ func TestCreateProfile_WithExclusions(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"name":"with-excl","display_name":"With Exclusions","allowed_ips":["0.0.0.0/0"],"exclude_ips":["10.0.0.0/8"]}`
+	body := `{"name":"with-excl","allowed_ips":["0.0.0.0/0"],"exclude_ips":["10.0.0.0/8"]}`
 	req := httptest.NewRequest("POST", "/api/profiles", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -169,7 +162,7 @@ func TestCreateProfile_Duplicate(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"name":"dup-profile","display_name":"Dup","allowed_ips":["10.0.0.0/24"]}`
+	body := `{"name":"dup-profile","allowed_ips":["10.0.0.0/24"]}`
 
 	// First create — success.
 	req := httptest.NewRequest("POST", "/api/profiles", strings.NewReader(body))
@@ -192,7 +185,7 @@ func TestCreateProfile_InvalidCIDR(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"name":"bad-cidr","display_name":"Bad","allowed_ips":["not-a-cidr"]}`
+	body := `{"name":"bad-cidr","allowed_ips":["not-a-cidr"]}`
 	req := httptest.NewRequest("POST", "/api/profiles", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -209,7 +202,6 @@ func TestUpdateProfile_Success(t *testing.T) {
 	// Create profile.
 	if err := db.CreateProfile(&storage.Profile{
 		Name:        "update-me",
-		DisplayName: "Old Name",
 		AllowedIPs:  []string{"10.0.0.0/24"},
 		ExcludeIPs:  []string{},
 		Description: "old",
@@ -217,7 +209,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"display_name":"New Name","description":"new"}`
+	body := `{"description":"new"}`
 	req := httptest.NewRequest("PUT", "/api/profiles/update-me", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -228,9 +220,6 @@ func TestUpdateProfile_Success(t *testing.T) {
 
 	var resp ProfileResponse
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp.DisplayName != "New Name" {
-		t.Errorf("DisplayName: got %q, want %q", resp.DisplayName, "New Name")
-	}
 	if resp.Description != "new" {
 		t.Errorf("Description: got %q, want %q", resp.Description, "new")
 	}
@@ -244,7 +233,7 @@ func TestUpdateProfile_NotFound(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"display_name":"X"}`
+	body := `{"description":"X"}`
 	req := httptest.NewRequest("PUT", "/api/profiles/nonexistent", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

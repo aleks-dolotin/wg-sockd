@@ -54,7 +54,6 @@ type PeerConfResponse struct {
 
 type ProfileResponse struct {
 	Name               string   `json:"name"`
-	DisplayName        string   `json:"display_name"`
 	AllowedIPs         []string `json:"allowed_ips"`
 	ExcludeIPs         []string `json:"exclude_ips"`
 	ResolvedAllowedIPs []string `json:"resolved_allowed_ips"`
@@ -422,7 +421,7 @@ func profilesList(client *http.Client) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDISPLAY_NAME\tALLOWED_IPS\tPEERS\tDEFAULT")
+	fmt.Fprintln(w, "NAME\tALLOWED_IPS\tPEERS\tDEFAULT")
 
 	for _, p := range profiles {
 		ips := strings.Join(p.ResolvedAllowedIPs, ",")
@@ -433,8 +432,8 @@ func profilesList(client *http.Client) error {
 		if p.IsDefault {
 			def = "✓"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
-			p.Name, p.DisplayName, ips, p.PeerCount, def)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
+			p.Name, ips, p.PeerCount, def)
 	}
 
 	w.Flush()

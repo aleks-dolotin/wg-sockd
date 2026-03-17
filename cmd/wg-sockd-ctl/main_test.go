@@ -167,7 +167,6 @@ func TestProfilesList(t *testing.T) {
 	profiles := []ProfileResponse{
 		{
 			Name:               "full-tunnel",
-			DisplayName:        "Full Tunnel",
 			AllowedIPs:         []string{"0.0.0.0/0"},
 			ResolvedAllowedIPs: []string{"0.0.0.0/0"},
 			IsDefault:          true,

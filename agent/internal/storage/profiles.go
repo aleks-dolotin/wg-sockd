@@ -11,7 +11,6 @@ import (
 // Profile represents a peer profile record in the database.
 type Profile struct {
 	Name        string
-	DisplayName string
 	AllowedIPs  []string
 	ExcludeIPs  []string
 	Description string
@@ -22,7 +21,6 @@ type Profile struct {
 // ProfileSeed represents a profile to seed from config.yaml.
 type ProfileSeed struct {
 	Name        string   `yaml:"name"`
-	DisplayName string   `yaml:"display_name"`
 	AllowedIPs  []string `yaml:"allowed_ips"`
 	ExcludeIPs  []string `yaml:"exclude_ips"`
 	Description string   `yaml:"description"`
@@ -31,7 +29,7 @@ type ProfileSeed struct {
 // ListProfiles returns all profiles ordered by name.
 func (db *DB) ListProfiles() ([]Profile, error) {
 	rows, err := db.conn.Query(`
-		SELECT name, display_name, allowed_ips, exclude_ips, description, is_default, created_at
+		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at
 		FROM profiles
 		ORDER BY name ASC
 	`)
@@ -57,10 +55,10 @@ func (db *DB) GetProfile(name string) (*Profile, error) {
 	var p Profile
 	var allowedJSON, excludeJSON string
 	err := db.conn.QueryRow(`
-		SELECT name, display_name, allowed_ips, exclude_ips, description, is_default, created_at
+		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at
 		FROM profiles
 		WHERE name = ?
-	`, name).Scan(&p.Name, &p.DisplayName, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt)
+	`, name).Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +83,9 @@ func (db *DB) CreateProfile(p *Profile) error {
 	}
 
 	_, err = db.conn.Exec(`
-		INSERT INTO profiles (name, display_name, allowed_ips, exclude_ips, description, is_default)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, p.Name, p.DisplayName, string(allowedJSON), string(excludeJSON), p.Description, p.IsDefault)
+		INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default)
+		VALUES (?, ?, ?, ?, ?)
+	`, p.Name, string(allowedJSON), string(excludeJSON), p.Description, p.IsDefault)
 	if err != nil {
 		return fmt.Errorf("creating profile: %w", err)
 	}
@@ -107,9 +105,9 @@ func (db *DB) UpdateProfile(name string, p *Profile) error {
 	}
 
 	result, err := db.conn.Exec(`
-		UPDATE profiles SET display_name = ?, allowed_ips = ?, exclude_ips = ?, description = ?
+		UPDATE profiles SET allowed_ips = ?, exclude_ips = ?, description = ?
 		WHERE name = ?
-	`, p.DisplayName, string(allowedJSON), string(excludeJSON), p.Description, name)
+	`, string(allowedJSON), string(excludeJSON), p.Description, name)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
 	}
@@ -187,9 +185,9 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 		}
 
 		_, err = db.conn.Exec(`
-			INSERT INTO profiles (name, display_name, allowed_ips, exclude_ips, description, is_default)
-			VALUES (?, ?, ?, ?, ?, 1)
-		`, s.Name, s.DisplayName, string(allowedJSON), string(excludeJSON), s.Description)
+			INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default)
+			VALUES (?, ?, ?, ?, 1)
+		`, s.Name, string(allowedJSON), string(excludeJSON), s.Description)
 		if err != nil {
 			return fmt.Errorf("seeding profile %q: %w", s.Name, err)
 		}
@@ -207,7 +205,7 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 func scanProfile(rows *sql.Rows) (Profile, error) {
 	var p Profile
 	var allowedJSON, excludeJSON string
-	if err := rows.Scan(&p.Name, &p.DisplayName, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt); err != nil {
+	if err := rows.Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt); err != nil {
 		return Profile{}, fmt.Errorf("scanning profile: %w", err)
 	}
 	if err := json.Unmarshal([]byte(allowedJSON), &p.AllowedIPs); err != nil {

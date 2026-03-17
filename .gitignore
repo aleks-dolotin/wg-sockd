@@ -16,3 +16,4 @@ agent/wg-sockd
 spike/spike-local
 spike/spike-arm64
 spike/spike-amd64
+cmd/wg-sockd-ctl/wg-sockd-ctl

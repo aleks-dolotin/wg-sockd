@@ -75,7 +75,6 @@ type StatsResponse struct {
 // ProfileResponse represents a peer profile with resolved allowed IPs.
 type ProfileResponse struct {
 	Name               string   `json:"name"`
-	DisplayName        string   `json:"display_name"`
 	AllowedIPs         []string `json:"allowed_ips"`
 	ExcludeIPs         []string `json:"exclude_ips"`
 	ResolvedAllowedIPs []string `json:"resolved_allowed_ips"`
@@ -89,7 +88,6 @@ type ProfileResponse struct {
 // CreateProfileRequest is the input for POST /api/profiles.
 type CreateProfileRequest struct {
 	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
 	AllowedIPs  []string `json:"allowed_ips"`
 	ExcludeIPs  []string `json:"exclude_ips"`
 	Description string   `json:"description,omitempty"`
@@ -97,7 +95,6 @@ type CreateProfileRequest struct {
 
 // UpdateProfileRequest is the input for PUT /api/profiles/{name}.
 type UpdateProfileRequest struct {
-	DisplayName *string  `json:"display_name,omitempty"`
 	AllowedIPs  []string `json:"allowed_ips,omitempty"`
 	ExcludeIPs  []string `json:"exclude_ips,omitempty"`
 	Description *string  `json:"description,omitempty"`

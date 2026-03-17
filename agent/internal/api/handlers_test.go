@@ -272,9 +272,8 @@ func TestCreatePeer_WithProfile(t *testing.T) {
 
 	// Create a profile first.
 	if err := db.CreateProfile(&storage.Profile{
-		Name:        "nas-only",
-		DisplayName: "NAS Only",
-		AllowedIPs:  []string{"10.0.0.0/24"},
+		Name:       "nas-only",
+		AllowedIPs: []string{"10.0.0.0/24"},
 		ExcludeIPs:  []string{},
 		Description: "NAS access",
 	}); err != nil {

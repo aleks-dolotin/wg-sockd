@@ -234,11 +234,9 @@ reconcile_interval: 30s
 # Peer profiles — seeded on first start, then managed via API
 # peer_profiles:
 #   - name: full-tunnel
-#     display_name: "Full Tunnel"
 #     allowed_ips: ["0.0.0.0/0", "::/0"]
 #     description: "Route all traffic through VPN"
 #   - name: nas-only
-#     display_name: "NAS Only"
 #     allowed_ips: ["192.168.1.0/24"]
 #     exclude_ips: ["192.168.1.1/32"]
 #     description: "Access NAS network only"
@@ -373,7 +371,7 @@ sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/pro
 sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X POST http://localhost/api/profiles \
   -H "Content-Type: application/json" \
-  -d '{"name": "media-only", "display_name": "Media Server", "allowed_ips": ["192.168.1.0/24"], "exclude_ips": ["192.168.1.1/32"], "description": "Access media server only"}'
+  -d '{"name": "media-only", "allowed_ips": ["192.168.1.0/24"], "exclude_ips": ["192.168.1.1/32"], "description": "Access media server only"}'
 ```
 
 **Update profile** — `PUT /api/profiles/{name}`

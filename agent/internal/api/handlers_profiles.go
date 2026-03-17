@@ -84,7 +84,6 @@ func (h *Handlers) CreateProfile(w http.ResponseWriter, r *http.Request) {
 
 	p := &storage.Profile{
 		Name:        req.Name,
-		DisplayName: req.DisplayName,
 		AllowedIPs:  req.AllowedIPs,
 		ExcludeIPs:  excludeIPs,
 		Description: req.Description,
@@ -133,15 +132,11 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Merge fields.
 	updated := &storage.Profile{
-		DisplayName: existing.DisplayName,
 		AllowedIPs:  existing.AllowedIPs,
 		ExcludeIPs:  existing.ExcludeIPs,
 		Description: existing.Description,
 	}
 
-	if req.DisplayName != nil {
-		updated.DisplayName = *req.DisplayName
-	}
 	if req.AllowedIPs != nil {
 		updated.AllowedIPs = req.AllowedIPs
 	}
@@ -197,7 +192,6 @@ func (h *Handlers) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 func profileToResponse(p storage.Profile) ProfileResponse {
 	resp := ProfileResponse{
 		Name:        p.Name,
-		DisplayName: p.DisplayName,
 		AllowedIPs:  p.AllowedIPs,
 		ExcludeIPs:  p.ExcludeIPs,
 		Description: p.Description,

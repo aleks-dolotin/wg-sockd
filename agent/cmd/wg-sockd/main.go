@@ -215,7 +215,6 @@ func main() {
 		for i, p := range cfg.PeerProfiles {
 			seeds[i] = storage.ProfileSeed{
 				Name:        p.Name,
-				DisplayName: p.DisplayName,
 				AllowedIPs:  p.AllowedIPs,
 				ExcludeIPs:  p.ExcludeIPs,
 				Description: p.Description,

@@ -13,7 +13,7 @@ export default function ProfilesPage() {
   const { data: profiles, isLoading, error } = useProfiles()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(null) // null | 'new' | profile object
-  const [formData, setFormData] = useState({ name: '', display_name: '', allowed_ips: '', exclude_ips: '', description: '' })
+  const [formData, setFormData] = useState({ name: '', allowed_ips: '', exclude_ips: '', description: '' })
   const [deleteError, setDeleteError] = useState(null)
 
   const saveMut = useMutation({
@@ -35,14 +35,13 @@ export default function ProfilesPage() {
   })
 
   function openNew() {
-    setFormData({ name: '', display_name: '', allowed_ips: '', exclude_ips: '', description: '' })
+    setFormData({ name: '', allowed_ips: '', exclude_ips: '', description: '' })
     setEditing('new')
   }
 
   function openEdit(p) {
     setFormData({
       name: p.name,
-      display_name: p.display_name || '',
       allowed_ips: (p.allowed_ips || []).join(', '),
       exclude_ips: (p.exclude_ips || []).join(', '),
       description: p.description || '',
@@ -68,7 +67,7 @@ export default function ProfilesPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">
-                  {p.display_name || p.name}
+                  {p.name}
                   {p.is_default && <Badge variant="secondary" className="ml-2">Default</Badge>}
                 </CardTitle>
                 <div className="space-x-1">
@@ -93,9 +92,6 @@ export default function ProfilesPage() {
             <div><label className="text-sm font-medium">Name</label>
               <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })}
                 placeholder="e.g. full-tunnel" disabled={editing !== 'new'} required /></div>
-            <div><label className="text-sm font-medium">Display Name</label>
-              <Input value={formData.display_name} onChange={e => setFormData({ ...formData, display_name: e.target.value })}
-                placeholder="Full Tunnel VPN" /></div>
             <div><label className="text-sm font-medium">Allowed IPs (comma-separated CIDRs) *</label>
               <Input value={formData.allowed_ips} onChange={e => setFormData({ ...formData, allowed_ips: e.target.value })}
                 placeholder="0.0.0.0/0" required /></div>

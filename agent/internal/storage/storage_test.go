@@ -24,8 +24,8 @@ func TestNewDB_InMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querying schema_version: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 migrations recorded, got %d", count)
+	if count != 3 {
+		t.Errorf("expected 3 migrations recorded, got %d", count)
 	}
 
 	// Verify peers table exists.

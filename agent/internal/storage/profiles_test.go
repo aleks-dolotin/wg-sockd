@@ -9,7 +9,7 @@ func TestMigration002_ProfilesTableExists(t *testing.T) {
 	db := newTestDB(t)
 
 	// Verify profiles table exists and has correct columns.
-	_, err := db.Conn().Exec("SELECT name, display_name, allowed_ips, exclude_ips, description, is_default, created_at FROM profiles LIMIT 0")
+	_, err := db.Conn().Exec("SELECT name, allowed_ips, exclude_ips, description, is_default, created_at FROM profiles LIMIT 0")
 	if err != nil {
 		t.Fatalf("profiles table should exist with expected columns: %v", err)
 	}
@@ -31,19 +31,16 @@ func TestSeedProfiles_EmptyDB(t *testing.T) {
 	seeds := []ProfileSeed{
 		{
 			Name:        "full-access",
-			DisplayName: "Full Access",
 			AllowedIPs:  []string{"0.0.0.0/0", "::/0"},
 			Description: "Route all traffic through VPN",
 		},
 		{
 			Name:        "nas-only",
-			DisplayName: "NAS Only",
 			AllowedIPs:  []string{"10.0.0.0/24"},
 			Description: "Access NAS network only",
 		},
 		{
 			Name:        "internet-only",
-			DisplayName: "Internet Only",
 			AllowedIPs:  []string{"0.0.0.0/0", "::/0"},
 			ExcludeIPs:  []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 			Description: "Internet through VPN, no local access",
@@ -76,8 +73,8 @@ func TestSeedProfiles_EmptyDB(t *testing.T) {
 
 	// Verify first profile details.
 	p := profiles[0]
-	if p.DisplayName != "Full Access" {
-		t.Errorf("DisplayName: got %q, want %q", p.DisplayName, "Full Access")
+	if p.Name != "full-access" {
+		t.Errorf("Name: got %q, want %q", p.Name, "full-access")
 	}
 	if len(p.AllowedIPs) != 2 || p.AllowedIPs[0] != "0.0.0.0/0" || p.AllowedIPs[1] != "::/0" {
 		t.Errorf("AllowedIPs: got %v, want [0.0.0.0/0 ::/0]", p.AllowedIPs)
@@ -107,7 +104,7 @@ func TestSeedProfiles_NonEmptyDB_NoChanges(t *testing.T) {
 
 	// Seed initial profiles.
 	seeds := []ProfileSeed{
-		{Name: "existing", DisplayName: "Existing", AllowedIPs: []string{"10.0.0.0/24"}, Description: "test"},
+		{Name: "existing", AllowedIPs: []string{"10.0.0.0/24"}, Description: "test"},
 	}
 	err := db.SeedProfiles(seeds)
 	if err != nil {
@@ -116,7 +113,7 @@ func TestSeedProfiles_NonEmptyDB_NoChanges(t *testing.T) {
 
 	// Try to seed again with different data.
 	newSeeds := []ProfileSeed{
-		{Name: "new-profile", DisplayName: "New", AllowedIPs: []string{"0.0.0.0/0"}, Description: "should not appear"},
+		{Name: "new-profile", AllowedIPs: []string{"0.0.0.0/0"}, Description: "should not appear"},
 	}
 	err = db.SeedProfiles(newSeeds)
 	if err != nil {
@@ -154,7 +151,6 @@ func TestCreateProfile_And_GetProfile(t *testing.T) {
 
 	p := &Profile{
 		Name:        "custom-profile",
-		DisplayName: "Custom Profile",
 		AllowedIPs:  []string{"10.0.0.0/24", "192.168.1.0/24"},
 		ExcludeIPs:  []string{},
 		Description: "A custom profile",
@@ -170,8 +166,8 @@ func TestCreateProfile_And_GetProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProfile: %v", err)
 	}
-	if got.DisplayName != "Custom Profile" {
-		t.Errorf("DisplayName: got %q, want %q", got.DisplayName, "Custom Profile")
+	if got.Name != "custom-profile" {
+		t.Errorf("Name: got %q, want %q", got.Name, "custom-profile")
 	}
 	if len(got.AllowedIPs) != 2 {
 		t.Errorf("AllowedIPs: got %v, want 2 entries", got.AllowedIPs)
@@ -195,7 +191,6 @@ func TestUpdateProfile(t *testing.T) {
 
 	p := &Profile{
 		Name:        "update-me",
-		DisplayName: "Old Name",
 		AllowedIPs:  []string{"10.0.0.0/24"},
 		ExcludeIPs:  []string{},
 		Description: "old description",
@@ -205,7 +200,6 @@ func TestUpdateProfile(t *testing.T) {
 	}
 
 	updated := &Profile{
-		DisplayName: "New Name",
 		AllowedIPs:  []string{"0.0.0.0/0"},
 		ExcludeIPs:  []string{"10.0.0.0/8"},
 		Description: "new description",
@@ -218,8 +212,8 @@ func TestUpdateProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProfile: %v", err)
 	}
-	if got.DisplayName != "New Name" {
-		t.Errorf("DisplayName: got %q, want %q", got.DisplayName, "New Name")
+	if got.Description != "new description" {
+		t.Errorf("Description: got %q, want %q", got.Description, "new description")
 	}
 	if len(got.AllowedIPs) != 1 || got.AllowedIPs[0] != "0.0.0.0/0" {
 		t.Errorf("AllowedIPs: got %v", got.AllowedIPs)
@@ -232,7 +226,7 @@ func TestUpdateProfile(t *testing.T) {
 func TestUpdateProfile_NotFound(t *testing.T) {
 	db := newTestDB(t)
 
-	p := &Profile{DisplayName: "x", AllowedIPs: []string{}, ExcludeIPs: []string{}}
+	p := &Profile{AllowedIPs: []string{}, ExcludeIPs: []string{}}
 	err := db.UpdateProfile("nonexistent", p)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows, got %v", err)

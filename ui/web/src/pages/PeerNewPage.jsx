@@ -63,7 +63,7 @@ export default function PeerNewPage() {
             <Select value={profile} onValueChange={setProfile}>
               <SelectTrigger><SelectValue placeholder="Select a profile..." /></SelectTrigger>
               <SelectContent>
-                {(profiles || []).map(p => (<SelectItem key={p.name} value={p.name}>{p.display_name || p.name}</SelectItem>))}
+                {(profiles || []).map(p => (<SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>))}
                 <SelectItem value="__custom__">Custom (manual CIDRs)</SelectItem>
               </SelectContent>
             </Select></div>)}

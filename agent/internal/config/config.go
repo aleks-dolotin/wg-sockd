@@ -14,7 +14,6 @@ import (
 // PeerProfileConfig represents a peer profile defined in config.yaml for seeding.
 type PeerProfileConfig struct {
 	Name        string   `yaml:"name"`
-	DisplayName string   `yaml:"display_name"`
 	AllowedIPs  []string `yaml:"allowed_ips"`
 	ExcludeIPs  []string `yaml:"exclude_ips"`
 	Description string   `yaml:"description"`

@@ -145,15 +145,12 @@ func TestLoadConfig_PeerProfiles(t *testing.T) {
 	yaml := `interface: wg0
 peer_profiles:
   - name: full-access
-    display_name: "Full Access"
     allowed_ips: ["0.0.0.0/0", "::/0"]
     description: "Route all traffic through VPN"
   - name: nas-only
-    display_name: "NAS Only"
     allowed_ips: ["10.0.0.0/24"]
     description: "Access NAS network only"
   - name: internet-only
-    display_name: "Internet Only"
     allowed_ips: ["0.0.0.0/0", "::/0"]
     exclude_ips: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
     description: "Internet through VPN, no local access"
@@ -175,9 +172,6 @@ peer_profiles:
 	p := cfg.PeerProfiles[0]
 	if p.Name != "full-access" {
 		t.Errorf("first profile Name: got %q, want %q", p.Name, "full-access")
-	}
-	if p.DisplayName != "Full Access" {
-		t.Errorf("first profile DisplayName: got %q, want %q", p.DisplayName, "Full Access")
 	}
 	if len(p.AllowedIPs) != 2 {
 		t.Errorf("first profile AllowedIPs: got %v, want 2 entries", p.AllowedIPs)
