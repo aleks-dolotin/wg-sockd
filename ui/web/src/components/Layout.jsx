@@ -6,7 +6,6 @@ import UnknownPeerAlert from '@/components/UnknownPeerAlert'
 const navItems = [
   { to: '/', label: 'Dashboard' },
   { to: '/peers', label: 'Peers' },
-  { to: '/peers/new', label: 'Add Peer' },
   { to: '/settings/profiles', label: 'Profiles' },
 ]
 
