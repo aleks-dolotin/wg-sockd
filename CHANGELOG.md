@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0] — 2026-03-17
+
+### Added
+
+- **Dark mode** — Tailwind class-based toggle with localStorage persistence, no flash on reload. Sun/moon button in header.
+- **Toast notifications** — sonner (native shadcn/ui) on all mutations: create, update, delete, approve, rotate keys. Success and error feedback.
+- **Loading skeletons** — shadcn Skeleton composites on Dashboard, PeersPage, PeerDetailPage, ProfilesPage. Replaces "Loading..." text.
+- **Error Boundary** — class-based React Error Boundary wrapping App with "Something went wrong" fallback + Reload button.
+- **Stale data banner** — persistent amber warning when agent is disconnected: "Agent unavailable — data may be outdated".
+- **PeerDetailPage full rewrite** — split into PeerStatusCard (online/offline/enabled badges, transfer RX/TX, endpoint, handshake), PeerActionsBar (enable/disable, rotate keys, download .conf, delete), PeerEditForm (name, profile, allowed IPs, notes). Graceful 404 when peer deleted externally.
+- **Rotate keys dialog** — confirmation → API call → new QR code + download .conf + private key warning.
+- **PeersPage search/filter/sort** — search by name or public key (300ms debounce), filter by status/profile/auto-discovered, sortable column headers. State persisted in URL via useSearchParams.
+- **ProfilesPage delete confirmation** — dialog with API error display (e.g. "profile has peers assigned").
+- **Dashboard top-20** — per-peer transfer bars limited to top 20 by traffic. Collapsible "Show all (N peers)" button.
+- **Dynamic page titles** — usePageTitle hook sets document.title on each page (e.g. "Peers — wg-sockd").
+- **Prometheus metrics endpoint** — GET /api/metrics with per-peer gauges/counters (rx/tx bytes, handshake, online, enabled) labeled by peer_name/public_key/profile + aggregate totals. Registered outside rate-limited router. Collector tests with mock wgctrl + in-memory DB.
+- **Helm Prometheus annotations** — conditional pod annotations (prometheus.io/scrape, path, port) gated by prometheus.enabled value.
+- **CLI global --json flag** — machine-readable JSON output on all commands for piping to jq.
+- **CLI new commands** — peers get, peers update (--name/--profile/--allowed-ips/--notes/--enable/--disable), peers rotate-keys, profiles create, profiles update, profiles delete, health, stats. Full test coverage.
+- **CLI --json retrofit** — existing peers list, peers add, peers delete, peers approve, profiles list all support --json.
+
+### Fixed
+
+- **UnknownPeerAlert link** — navigates to /peers?filter=auto_discovered (was /?filter=auto_discovered).
+- **IPv6 CIDR validation** — isValidCIDR() now supports IPv6 addresses (fd00::1/64, ::/0, full addresses).
+- **Dark mode CSS bug** — removed hardcoded body { bg-gray-50 text-gray-900 } that overrode @layer base dark mode styles.
+- **index.html title** — changed from "web" to "wg-sockd".
+- **Pre-existing ESLint warnings** — removed unused badgeVariants/buttonVariants exports from shadcn badge.jsx/button.jsx.
+
+### Changed
+
+- All UI components use dark-mode safe Tailwind classes (bg-background, text-foreground, bg-muted, etc.) instead of hardcoded gray-* colors.
+- Layout.jsx header uses semantic color tokens.
+- Bump Helm chart version and appVersion to 0.6.0
+- Bump image tag to 0.6.0
+
 ## [v0.5.0] — 2026-03-16
 
 ### Fixed
