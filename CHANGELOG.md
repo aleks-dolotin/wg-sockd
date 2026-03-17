@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.0] — 2026-03-17
+
+### Added
+
+- **Dev mode** — in-memory WireGuard client (`--dev-wg` flag) behind `dev_wg` build tag; `make dev` / `make build-dev` for local development on macOS without real WireGuard
+- **GET /api/peers/{id}** — single peer endpoint with live wgctrl data merge
+- **Edit Peer page** — full edit form (name, profile, allowed IPs, notes) replacing stub
+- **Unicode friendly names** — peer names now support Cyrillic, CJK, and all Unicode letters
+- **Vite Unix socket proxy** — `WG_SOCKD_SOCKET` env var for dev mode, no TCP listener needed
+- **SQL migration 003** — drops `display_name` column from profiles table
+
+### Changed
+
+- **Dashboard is now the landing page** (`/`) — Peers moved to `/peers`
+- **Navigation order** — Dashboard → Peers → Profiles; removed Add Peer from top nav (button exists on Peers page)
+- **Connection status** — uses `/api/health` instead of `/ui/status`; eliminates 404 console spam in dev mode and standalone
+- **Add Peer form** — shows Allowed IPs field directly when no profiles exist (no need to select "Custom")
+- **Profile model simplified** — removed `display_name` from entire stack (SQL, Go, API, CTL, UI, docs)
+- **chart/values.yaml** — image repository now points to `ghcr.io/aleks-dolotin/wg-sockd-ui`
+
+### Fixed
+
+- **RuntimeDirectory removed** from systemd unit — prevents K8s hostPath inode mismatch on agent restart
+- **install.sh** — creates `/run/wg-sockd/` with correct permissions; socket access hint with `$USER`
+- **release.yml** — ldflags injected for all build targets; per-file `.sha256` checksums
+- **CTL profiles list** — fixed format string mismatch after display_name removal
+
 ## [v0.2.0] — 2026-03-16
 
 ### Installation UX Overhaul
