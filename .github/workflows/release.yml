@@ -28,7 +28,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}  # PM-1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -36,7 +36,7 @@ jobs:
           cache: true
           cache-dependency-path: '**/go.sum'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -71,9 +71,9 @@ jobs:
     timeout-minutes: 10  # PM-3
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -83,7 +83,7 @@ jobs:
         run: cd ui/web && npm ci && npm run build
 
       - name: Upload UI dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ui-dist
           path: ui/web/dist
@@ -102,7 +102,7 @@ jobs:
         goarch: [amd64, arm64]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -111,7 +111,7 @@ jobs:
           cache-dependency-path: '**/go.sum'
 
       - name: Download UI dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: ui-dist
           path: agent/cmd/wg-sockd/ui_dist
@@ -158,7 +158,7 @@ jobs:
             .
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-${{ matrix.goarch }}
           path: |
@@ -177,16 +177,16 @@ jobs:
     timeout-minutes: 5  # PM-3
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download amd64 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-amd64
           path: dist/
 
       - name: Download arm64 binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: binaries-arm64
           path: dist/
@@ -228,7 +228,7 @@ jobs:
     timeout-minutes: 20  # PM-3: QEMU arm64 is slow
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -265,7 +265,7 @@ jobs:
     timeout-minutes: 5  # PM-3
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Login to GHCR OCI
         run: |
