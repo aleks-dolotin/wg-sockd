@@ -4,11 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.4.0] — 2026-03-16
 
+### Added
+
+- **WireGuard permissions documentation** — `/etc/wireguard/` must be `0770 root:wg-sockd` for the agent to create peers. WireGuard defaults to `700 root:root` which blocks all write operations. Documented in deployment guide, README prerequisites, and security sections with comparison to wg-easy's root-in-Docker approach.
+
 ### Changed
 
-- Bump version to 0.4.0 for full-flow validation
-- Update Helm chart version and appVersion to 0.4.0
-- Update image tag to 0.4.0
+- Bump Helm chart version and appVersion to 0.4.0
+- Bump image tag to 0.4.0
+
+### Known Issues
+
+- **`install.sh` does not set `/etc/wireguard/` permissions** — fresh installs have a broken write path. Peer creation returns 500, reconciler spams `conf rewrite failed` warnings, but health endpoint reports `"status":"ok"` (false positive). **Workaround:** `sudo chown root:wg-sockd /etc/wireguard && sudo chmod 770 /etc/wireguard && sudo chown root:wg-sockd /etc/wireguard/wg0.conf && sudo chmod 660 /etc/wireguard/wg0.conf`
+- **`--dry-run` does not validate write access** to `conf_path` or its parent directory
+- **`wg-quick save` resets permissions** — `umask 077` reverts `wg0.conf` to `600 root:root`
 
 ## [v0.3.0] — 2026-03-17
 

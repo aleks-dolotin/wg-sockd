@@ -63,6 +63,7 @@ The fastest way to get started. One command installs the agent with embedded web
   - Arch: `pacman -S wireguard-tools`
   - Alpine: `apk add wireguard-tools`
 - **WireGuard interface** — a running `wg0` interface with `[Interface]` section configured in `/etc/wireguard/wg0.conf`
+- **WireGuard directory permissions** — the agent runs as user `wg-sockd` and needs read/write access to `/etc/wireguard/`. WireGuard defaults to `700 root:root`. The install script sets correct permissions automatically. If installing manually, see [WireGuard Directory Permissions](docs/deployment-guide.md#wireguard-directory-permissions).
 
 ### 1. Install
 
@@ -481,6 +482,7 @@ The agent listens on a Unix domain socket with restricted permissions:
 - Agent runs as `wg-sockd` user (not root)
 - Only `CAP_NET_ADMIN` capability for WireGuard kernel operations
 - `ProtectSystem=strict`, `NoNewPrivileges=yes` in systemd
+- `/etc/wireguard/` must be `0770 root:wg-sockd` — the agent performs atomic writes (`wg0.conf.tmp` → `rename`). WireGuard's default `700 root:root` is too restrictive; `install.sh` adjusts this automatically. Unlike [wg-easy](https://github.com/wg-easy/wg-easy), which runs as root inside Docker, wg-sockd uses minimal privileges.
 
 ### Unknown Peer Blocking (F3)
 

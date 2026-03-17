@@ -61,7 +61,25 @@ Key security settings:
 | `/var/lib/wg-sockd/wg-sockd.db` | SQLite database | 0660 (wg-sockd:wg-sockd) |
 | `/var/lib/wg-sockd/wg-sockd.db.bak` | Hourly DB backup | 0660 |
 | `/var/run/wg-sockd/wg-sockd.sock` | Unix socket | 0660 (wg-sockd group) |
-| `/etc/wireguard/wg0.conf` | WireGuard config | Managed by agent ([Peer] sections) |
+| `/etc/wireguard/` | WireGuard config directory | 0770 (root:wg-sockd) |
+| `/etc/wireguard/wg0.conf` | WireGuard config | 0660 (root:wg-sockd) — managed by agent ([Peer] sections) |
+
+### WireGuard Directory Permissions
+
+> **Important:** WireGuard installs `/etc/wireguard/` as `700 root:root` by default — only root can access it. Since `wg-sockd` runs as an unprivileged user, the agent needs read/write access to both the directory and the conf file.
+
+The `install.sh` script sets this up automatically. If you installed manually or see `permission denied` errors on peer creation, fix permissions:
+
+```bash
+sudo chown root:wg-sockd /etc/wireguard
+sudo chmod 770 /etc/wireguard
+sudo chown root:wg-sockd /etc/wireguard/wg0.conf
+sudo chmod 660 /etc/wireguard/wg0.conf
+```
+
+**Why the directory needs write access:** The agent writes `wg0.conf.tmp` alongside `wg0.conf` and performs an atomic `rename()` to prevent partial writes. This requires write permission on the parent directory.
+
+**Note:** If you run `wg-quick save wg0`, it resets `wg0.conf` ownership to `root:root` with mode `0600` (WireGuard's default `umask 077`). You will need to re-apply the permissions above after any `wg-quick save`.
 
 ### Embedded UI Mode
 
@@ -204,6 +222,17 @@ sudo wg-sockd --config /etc/wg-sockd/config.yaml --dry-run
 This validates config parsing, ui_listen format, directory permissions, and WireGuard availability without starting any services.
 
 ### Common Issues
+
+**Peer creation fails — "permission denied" on wg0.conf**
+- WireGuard installs `/etc/wireguard/` as `700 root:root` — the agent cannot read or write it
+- Fix: `sudo chown root:wg-sockd /etc/wireguard && sudo chmod 770 /etc/wireguard`
+- Also: `sudo chown root:wg-sockd /etc/wireguard/wg0.conf && sudo chmod 660 /etc/wireguard/wg0.conf`
+- Note: `wg-quick save` resets these permissions — re-apply after running it
+- The `--dry-run` flag does not currently check conf_path write access (planned)
+
+**Reconciler spams "conf rewrite failed" warnings**
+- Same root cause as above — the agent cannot write `wg0.conf.tmp` in `/etc/wireguard/`
+- Health endpoint still returns `"status": "ok"` — this is a known false-positive (the health check does not verify conf writability)
 
 **Agent won't start — "loading config" error**
 - Check YAML syntax: `cat /etc/wg-sockd/config.yaml | python3 -c 'import yaml,sys; yaml.safe_load(sys.stdin)'`
