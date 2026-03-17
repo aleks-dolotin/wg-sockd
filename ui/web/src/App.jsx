@@ -25,10 +25,10 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route element={<Layout />}>
-              <Route path="/" element={<PeersPage />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/peers" element={<PeersPage />} />
               <Route path="/peers/new" element={<PeerNewPage />} />
               <Route path="/peers/:id" element={<PeerDetailPage />} />
-              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/settings/profiles" element={<ProfilesPage />} />
             </Route>
           </Routes>

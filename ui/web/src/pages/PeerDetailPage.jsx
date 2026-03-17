@@ -93,7 +93,7 @@ export default function PeerDetailPage() {
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold tracking-tight">Edit Peer</h2>
-        <Button variant="outline" onClick={() => navigate('/')}>Back</Button>
+        <Button variant="outline" onClick={() => navigate('/peers')}>Back</Button>
       </div>
 
       {peer.auto_discovered && !peer.enabled && (
@@ -200,7 +200,7 @@ export default function PeerDetailPage() {
             >
               {saving ? 'Saving…' : 'Save Changes'}
             </Button>
-            <Button variant="outline" onClick={() => navigate('/')}>Cancel</Button>
+            <Button variant="outline" onClick={() => navigate('/peers')}>Cancel</Button>
           </div>
         </CardContent>
       </Card>

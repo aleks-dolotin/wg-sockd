@@ -87,11 +87,11 @@ export default function PeerNewPage() {
           {cidrError && <Alert variant="destructive"><AlertDescription>{cidrError}</AlertDescription></Alert>}
           <div className="flex gap-2">
             <Button type="submit" disabled={createMut.isPending || !name || !isConnected || (isCustom && !customIPs)}>{createMut.isPending ? 'Creating...' : 'Create Peer'}</Button>
-            <Button type="button" variant="outline" onClick={() => navigate('/')}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => navigate('/peers')}>Cancel</Button>
           </div>
         </form>
       ) : (
-        <Dialog open={true} onOpenChange={() => navigate('/')}>
+        <Dialog open={true} onOpenChange={() => navigate('/peers')}>
           <DialogContent>
             <DialogHeader><DialogTitle>Peer Created</DialogTitle></DialogHeader>
             <Alert><AlertDescription>Save this configuration now. The private key will not be shown again.</AlertDescription></Alert>
@@ -100,7 +100,7 @@ export default function PeerNewPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" asChild><a href={'/api/peers/' + result.id + '/conf'} download>Download .conf</a></Button>
-              <Button onClick={() => navigate('/')}>Done</Button>
+              <Button onClick={() => navigate('/peers')}>Done</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

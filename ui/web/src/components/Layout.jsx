@@ -4,9 +4,9 @@ import ConnectionStatus from '@/components/ConnectionStatus'
 import UnknownPeerAlert from '@/components/UnknownPeerAlert'
 
 const navItems = [
-  { to: '/', label: 'Peers' },
+  { to: '/', label: 'Dashboard' },
+  { to: '/peers', label: 'Peers' },
   { to: '/peers/new', label: 'Add Peer' },
-  { to: '/dashboard', label: 'Dashboard' },
   { to: '/settings/profiles', label: 'Profiles' },
 ]
 
