@@ -163,7 +163,7 @@ export default function PeersPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{truncateKey(peer.public_key)}</TableCell>
-                      <TableCell className="text-xs">{peer.allowed_ips?.join(', ') || '—'}</TableCell>
+                      <TableCell className="text-xs max-w-[200px] truncate">{peer.allowed_ips?.join(', ') || '—'}</TableCell>
                       <TableCell>{peer.profile || '—'}</TableCell>
                       <TableCell>
                         <Badge variant={online ? 'default' : 'secondary'}>{online ? 'Online' : 'Offline'}</Badge>
@@ -204,7 +204,7 @@ export default function PeersPage() {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     {peer.auto_discovered && <Badge variant="secondary" className="text-amber-600 dark:text-amber-400">Auto-discovered</Badge>}
-                    <p className="text-muted-foreground">{peer.allowed_ips?.join(', ')}</p>
+                    <p className="text-muted-foreground truncate">{peer.allowed_ips?.join(', ')}</p>
                     <p className="text-xs text-muted-foreground">↓{formatBytes(peer.transfer_rx)} ↑{formatBytes(peer.transfer_tx)}</p>
                     <div className="flex gap-2 pt-1">
                       <Button variant="outline" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>
