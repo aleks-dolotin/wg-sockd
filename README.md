@@ -129,12 +129,7 @@ sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
 
 Open in browser: `http://your-host:8080/peers`
 
-Or via API — save QR as PNG:
-
-```bash
-sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
-  http://localhost/api/peers/1/qr -o peer-qr.png
-```
+Click on a peer to open the detail page — QR code is shown in the Create Peer and Rotate Keys dialogs.
 
 ---
 
@@ -339,19 +334,6 @@ sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
   -X DELETE http://localhost/api/peers/1
 ```
 
-**Download client .conf** — `GET /api/peers/{id}/conf`
-
-```bash
-sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
-  http://localhost/api/peers/1/conf
-```
-
-**Download QR code PNG** — `GET /api/peers/{id}/qr`
-
-```bash
-sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock \
-  http://localhost/api/peers/1/qr -o peer.png
-```
 
 **Rotate keypair** — `POST /api/peers/{id}/rotate-keys`
 
@@ -534,6 +516,33 @@ The agent listens on a Unix domain socket with restricted permissions:
 - Agent **never modifies** the `[Interface]` section of `wg0.conf`
 - Only `[Peer]` sections are managed, with `# wg-sockd:` metadata comments
 - PostUp/PostDown, MTU, DNS, and other Interface settings are preserved
+
+---
+
+## Upgrade
+
+Re-run the install script — it downloads the latest binary, replaces it, and restarts the service. Config and database are preserved.
+
+Full binary (with UI):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+```
+
+Agent-only (no UI, for K8s):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
+```
+
+For Kubernetes, upgrade the Helm chart:
+
+```bash
+helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
+  --version 0.10.0 -n wg-sockd
+```
+
+See [UPGRADING.md](UPGRADING.md) for version-specific migration notes.
 
 ---
 

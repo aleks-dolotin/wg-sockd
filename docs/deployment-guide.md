@@ -25,11 +25,15 @@ curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/i
 
 To install without starting the service automatically (e.g. to review config first):
 
-```bash
-# Full binary, no auto-start
-curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --no-start
+Full binary, no auto-start:
 
-# Agent-only, no auto-start
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --no-start
+```
+
+Agent-only, no auto-start:
+
+```bash
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only --no-start
 ```
 
@@ -125,6 +129,36 @@ Alternatively: `sudo bash deploy/uninstall.sh`
 
 Preserves config and data in `/etc/wg-sockd` and `/var/lib/wg-sockd`.
 
+### Upgrade
+
+Re-run the install script — it downloads the latest binary from GitHub Releases, replaces the binary, and restarts the service automatically. Config and database are not modified.
+
+Full binary (with UI):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+```
+
+Agent-only (no UI):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
+```
+
+To upgrade without restarting immediately:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --no-start
+```
+
+Review or edit config if needed, then start:
+
+```bash
+sudo systemctl restart wg-sockd
+```
+
+> **Note:** See [UPGRADING.md](../UPGRADING.md) for version-specific migration notes.
+
 ## Kubernetes Deployment (Helm)
 
 ### Prerequisites
@@ -210,6 +244,15 @@ kubectl port-forward -n wg-sockd svc/wg-sockd-ui 8080:8080
 ```
 
 Then open `http://localhost:8080`.
+
+### Upgrade
+
+```bash
+helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
+  --version 0.10.0 -n wg-sockd
+```
+
+To also upgrade the agent on the host node, re-run the install script as described in the [Standalone Upgrade](#upgrade) section.
 
 ### Docker Image Build
 

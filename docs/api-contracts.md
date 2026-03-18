@@ -13,8 +13,6 @@ No TCP exposure by default. Use `curl --unix-socket` for direct access.
 | POST | `/api/peers` | Create peer (with profile or custom IPs) |
 | PUT | `/api/peers/{id}` | Update peer |
 | DELETE | `/api/peers/{id}` | Delete peer |
-| GET | `/api/peers/{id}/conf` | Download client .conf file |
-| GET | `/api/peers/{id}/qr` | Download QR code PNG |
 | POST | `/api/peers/{id}/rotate-keys` | Rotate peer keypair |
 | POST | `/api/peers/{id}/approve` | Approve auto-discovered peer |
 | POST | `/api/peers/batch` | Batch create multiple peers |
@@ -82,7 +80,7 @@ Create a new peer. Supports two modes: profile-based or custom IPs.
 }
 ```
 
-**Response 201:** Peer object including `private_key` (only returned on creation — never stored).
+**Response 201:** Peer object including `private_key`, `config` (full WireGuard client conf), and `qr` (base64 PNG) — all one-time, never stored.
 
 ### PUT /api/peers/{id}
 
@@ -100,17 +98,10 @@ Update peer metadata (friendly_name, notes, enabled status).
 
 Remove peer from database and WireGuard kernel.
 
-### GET /api/peers/{id}/conf
-
-Download WireGuard client configuration file as text/plain.
-
-### GET /api/peers/{id}/qr
-
-Download QR code PNG of peer configuration. Content-Type: image/png.
 
 ### POST /api/peers/{id}/rotate-keys
 
-Generate new keypair for peer. Returns new config. Old keys are invalidated atomically.
+Generate new keypair for peer. Returns `{ public_key, config, qr }` — config and QR are one-time, never stored. Old keys are invalidated atomically.
 
 ### POST /api/peers/{id}/approve
 
