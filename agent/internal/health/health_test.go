@@ -29,7 +29,8 @@ func (m *mockWgClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	k, _ := wgtypes.GeneratePrivateKey()
 	return k, k.PublicKey(), nil
 }
-func (m *mockWgClient) Close() error { return nil }
+func (m *mockWgClient) GeneratePresharedKey() (wgtypes.Key, error) { return wgtypes.GenerateKey() }
+func (m *mockWgClient) Close() error                               { return nil }
 
 // Ensure mockWgClient satisfies the interface at compile time.
 var _ wireguard.WireGuardClient = (*mockWgClient)(nil)

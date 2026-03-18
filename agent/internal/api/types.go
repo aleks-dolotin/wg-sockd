@@ -32,6 +32,14 @@ type PeerResponse struct {
 	ResolvedClientMTUSource string `json:"resolved_client_mtu_source,omitempty"`
 	ResolvedClientPKA       int    `json:"resolved_client_persistent_keepalive"`
 	ResolvedClientPKASource string `json:"resolved_client_persistent_keepalive_source,omitempty"`
+	// Phase 1: client_address and last_seen_endpoint
+	ClientAddress    string `json:"client_address,omitempty"`
+	LastSeenEndpoint string `json:"last_seen_endpoint,omitempty"`
+	// Phase 2: PSK status (never expose value in GET) + split-tunnel
+	HasPresharedKey                bool   `json:"has_preshared_key"`
+	ClientAllowedIPs               string `json:"client_allowed_ips,omitempty"`
+	ResolvedClientAllowedIPs       string `json:"resolved_client_allowed_ips,omitempty"`
+	ResolvedClientAllowedIPsSource string `json:"resolved_client_allowed_ips_source,omitempty"`
 }
 
 // CreatePeerRequest is the input for POST /api/peers.
@@ -43,6 +51,9 @@ type CreatePeerRequest struct {
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	ClientAddress       string   `json:"client_address,omitempty"`
+	PresharedKey        string   `json:"preshared_key,omitempty"` // "auto" = generate, base64 = use explicit, "" = none
+	ClientAllowedIPs    string   `json:"client_allowed_ips,omitempty"`
 }
 
 // UpdatePeerRequest is the input for PUT /api/peers/{id}.
@@ -56,12 +67,27 @@ type UpdatePeerRequest struct {
 	PersistentKeepalive **int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           *string  `json:"client_dns,omitempty"`
 	ClientMTU           **int    `json:"client_mtu,omitempty"`
+	ClientAddress       *string  `json:"client_address,omitempty"`
+	ClientAllowedIPs    *string  `json:"client_allowed_ips,omitempty"`
 }
 
 // PeerConfResponse holds .conf file content for client download.
 type PeerConfResponse struct {
 	PublicKey string `json:"public_key"`
 	Config    string `json:"config"`
+}
+
+// ApprovePeerRequest is the input for POST /api/peers/{id}/approve.
+// Expands simple approve to full onboarding with peer configuration.
+type ApprovePeerRequest struct {
+	FriendlyName        string   `json:"friendly_name,omitempty"`
+	Profile             *string  `json:"profile,omitempty"`
+	AllowedIPs          []string `json:"allowed_ips,omitempty"`
+	ClientAddress       string   `json:"client_address"`
+	ConfiguredEndpoint  string   `json:"configured_endpoint,omitempty"`
+	ClientDNS           string   `json:"client_dns,omitempty"`
+	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 }
 
 // BatchCreatePeersRequest wraps multiple peer creation requests.
@@ -108,6 +134,8 @@ type ProfileResponse struct {
 	PersistentKeepalive *int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string  `json:"client_dns,omitempty"`
 	ClientMTU           *int    `json:"client_mtu,omitempty"`
+	ClientAllowedIPs    string  `json:"client_allowed_ips,omitempty"`
+	UsePresharedKey     bool    `json:"use_preshared_key"`
 }
 
 // CreateProfileRequest is the input for POST /api/profiles.
@@ -120,6 +148,8 @@ type CreateProfileRequest struct {
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	ClientAllowedIPs    string   `json:"client_allowed_ips,omitempty"`
+	UsePresharedKey     bool     `json:"use_preshared_key"`
 }
 
 // UpdateProfileRequest is the input for PUT /api/profiles/{name}.
@@ -131,6 +161,8 @@ type UpdateProfileRequest struct {
 	PersistentKeepalive **int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           *string  `json:"client_dns,omitempty"`
 	ClientMTU           **int    `json:"client_mtu,omitempty"`
+	ClientAllowedIPs    *string  `json:"client_allowed_ips,omitempty"`
+	UsePresharedKey     *bool    `json:"use_preshared_key,omitempty"`
 }
 
 // --- Error Types ---

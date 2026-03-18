@@ -22,6 +22,8 @@ type PeerProfileConfig struct {
 	PersistentKeepalive *int     `yaml:"persistent_keepalive"`
 	ClientDNS           string   `yaml:"client_dns"`
 	ClientMTU           *int     `yaml:"client_mtu"`
+	ClientAllowedIPs    string   `yaml:"client_allowed_ips"`
+	UsePresharedKey     bool     `yaml:"use_preshared_key"`
 }
 
 // PeerDefaultsConfig holds global defaults for client config generation (4-level cascade).
@@ -29,6 +31,7 @@ type PeerDefaultsConfig struct {
 	ClientDNS                  string `yaml:"client_dns"`
 	ClientMTU                  int    `yaml:"client_mtu"`
 	ClientPersistentKeepalive  int    `yaml:"client_persistent_keepalive"`
+	ClientAllowedIPs           string `yaml:"client_allowed_ips"`
 }
 
 // BasicAuthConfig holds username/password authentication settings.
@@ -75,7 +78,6 @@ type Config struct {
 	ConfPath           string               `yaml:"conf_path"`
 	ListenAddr         string               `yaml:"listen_addr"`
 	ExternalEndpoint   string               `yaml:"external_endpoint"`
-	AutoApproveUnknown bool                 `yaml:"auto_approve_unknown"`
 	PeerLimit          int                  `yaml:"peer_limit"`
 	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
 	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
@@ -94,7 +96,6 @@ func Defaults() *Config {
 		DBPath:             "/var/lib/wg-sockd/wg-sockd.db",
 		ConfPath:           "/etc/wireguard/wg0.conf",
 		ListenAddr:         "",
-		AutoApproveUnknown: false,
 		PeerLimit:          250,
 		ReconcileInterval:  30 * time.Second,
 		RateLimit:          10,
@@ -141,7 +142,6 @@ func (c *Config) ApplyFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.DBPath, "db-path", c.DBPath, "SQLite database path")
 	fs.StringVar(&c.ConfPath, "conf-path", c.ConfPath, "WireGuard config file path")
 	fs.StringVar(&c.ListenAddr, "listen-addr", c.ListenAddr, "HTTP listen address (for standalone UI mode)")
-	fs.BoolVar(&c.AutoApproveUnknown, "auto-approve-unknown", c.AutoApproveUnknown, "Auto-approve unknown peers found in kernel")
 	fs.BoolVar(&c.ServeUI, "serve-ui", c.ServeUI, "serve embedded UI on TCP (requires embed_ui build tag)")
 	fs.StringVar(&c.UIListen, "ui-listen", c.UIListen, "TCP listen address for UI mode")
 }
@@ -164,14 +164,6 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 		{"WG_SOCKD_DB_PATH", func(v string) error { c.DBPath = v; return nil }},
 		{"WG_SOCKD_CONF_PATH", func(v string) error { c.ConfPath = v; return nil }},
 		{"WG_SOCKD_LISTEN_ADDR", func(v string) error { c.ListenAddr = v; return nil }},
-		{"WG_SOCKD_AUTO_APPROVE_UNKNOWN", func(v string) error {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("invalid boolean value %q", v)
-			}
-			c.AutoApproveUnknown = b
-			return nil
-		}},
 		{"WG_SOCKD_PEER_LIMIT", func(v string) error {
 			n, err := strconv.Atoi(v)
 			if err != nil {
@@ -267,6 +259,7 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 			c.PeerDefaults.ClientPersistentKeepalive = n
 			return nil
 		}},
+		{"WG_SOCKD_CLIENT_ALLOWED_IPS", func(v string) error { c.PeerDefaults.ClientAllowedIPs = v; return nil }},
 	}
 
 	for _, m := range mappings {

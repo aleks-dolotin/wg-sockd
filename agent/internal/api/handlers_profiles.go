@@ -92,6 +92,8 @@ func (h *Handlers) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		PersistentKeepalive: req.PersistentKeepalive,
 		ClientDNS:           req.ClientDNS,
 		ClientMTU:           req.ClientMTU,
+		ClientAllowedIPs:    req.ClientAllowedIPs,
+		UsePresharedKey:     req.UsePresharedKey,
 	}
 
 	if err := h.store.CreateProfile(p); err != nil {
@@ -143,6 +145,8 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		PersistentKeepalive: existing.PersistentKeepalive,
 		ClientDNS:           existing.ClientDNS,
 		ClientMTU:           existing.ClientMTU,
+		ClientAllowedIPs:    existing.ClientAllowedIPs,
+		UsePresharedKey:     existing.UsePresharedKey,
 	}
 
 	if req.AllowedIPs != nil {
@@ -165,6 +169,12 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ClientMTU != nil {
 		updated.ClientMTU = *req.ClientMTU
+	}
+	if req.ClientAllowedIPs != nil {
+		updated.ClientAllowedIPs = *req.ClientAllowedIPs
+	}
+	if req.UsePresharedKey != nil {
+		updated.UsePresharedKey = *req.UsePresharedKey
 	}
 
 	// Validate resulting CIDRs.
@@ -220,6 +230,8 @@ func profileToResponse(p storage.Profile) ProfileResponse {
 		PersistentKeepalive: p.PersistentKeepalive,
 		ClientDNS:           p.ClientDNS,
 		ClientMTU:           p.ClientMTU,
+		ClientAllowedIPs:    p.ClientAllowedIPs,
+		UsePresharedKey:     p.UsePresharedKey,
 	}
 
 	if resp.AllowedIPs == nil {

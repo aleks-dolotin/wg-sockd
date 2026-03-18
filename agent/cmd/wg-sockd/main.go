@@ -90,9 +90,6 @@ func main() {
 	if !explicitFlags["listen-addr"] {
 		cfg.ListenAddr = fileCfg.ListenAddr
 	}
-	if !explicitFlags["auto-approve-unknown"] {
-		cfg.AutoApproveUnknown = fileCfg.AutoApproveUnknown
-	}
 	// These fields are not CLI flags — always take from file.
 	cfg.PeerLimit = fileCfg.PeerLimit
 	cfg.ReconcileInterval = fileCfg.ReconcileInterval
@@ -201,8 +198,9 @@ func main() {
 		os.Exit(runDryRun(cfg))
 	}
 
-	if cfg.AutoApproveUnknown {
-		log.Println("WARNING: auto_approve_unknown is enabled — unknown peers will NOT be blocked")
+	// Detect deprecated auto_approve_unknown in config file.
+	if detectDeprecatedAutoApprove(*configPath) {
+		log.Println("WARN: auto_approve_unknown is deprecated and ignored — all unknown peers require admin approval")
 	}
 
 	// Graceful shutdown context.
@@ -253,12 +251,19 @@ func main() {
 				PersistentKeepalive: p.PersistentKeepalive,
 				ClientDNS:           p.ClientDNS,
 				ClientMTU:           p.ClientMTU,
+				ClientAllowedIPs:    p.ClientAllowedIPs,
+				UsePresharedKey:     p.UsePresharedKey,
 			}
 		}
 		if err := db.SeedProfiles(seeds); err != nil {
 			log.Fatalf("FATAL: seeding profiles: %v", err)
 		}
 		log.Printf("Profile seeding checked (%d profiles configured)", len(seeds))
+	}
+
+	// Startup warning: count peers with empty client_address.
+	if emptyCount, err := db.CountPeersWithEmptyClientAddress(); err == nil && emptyCount > 0 {
+		log.Printf("WARN: %d peers have empty client_address — client conf will fail for profile-based peers", emptyCount)
 	}
 
 	// 3. Create wgctrl client (dev mode / degraded mode if fails).
@@ -311,6 +316,7 @@ func main() {
 			pc := confwriter.PeerConf{
 				PublicKey:    p.PublicKey,
 				AllowedIPs:   p.AllowedIPs,
+				PresharedKey: p.PresharedKey,
 				FriendlyName: p.FriendlyName,
 				CreatedAt:    p.CreatedAt,
 				Notes:        p.Notes,
@@ -697,6 +703,17 @@ func watchdogLoop(ctx context.Context) {
 	}
 }
 
+// detectDeprecatedAutoApprove checks if auto_approve_unknown is present in the config file.
+// Returns true if the deprecated field is found (any value).
+func detectDeprecatedAutoApprove(configPath string) bool {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return false
+	}
+	// Simple detection: check if the YAML key exists.
+	return strings.Contains(string(data), "auto_approve_unknown")
+}
+
 // degradedWgClient is a no-op WireGuard client for degraded mode.
 type degradedWgClient struct{}
 
@@ -711,6 +728,9 @@ func (d *degradedWgClient) RemovePeer(name string, pubKey wgtypes.Key) error {
 }
 func (d *degradedWgClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	return wgtypes.Key{}, wgtypes.Key{}, errDegraded
+}
+func (d *degradedWgClient) GeneratePresharedKey() (wgtypes.Key, error) {
+	return wgtypes.Key{}, errDegraded
 }
 func (d *degradedWgClient) Close() error { return nil }
 

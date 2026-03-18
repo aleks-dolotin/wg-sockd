@@ -117,40 +117,25 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		}
 
 		// Unknown peer: not in DB at all.
-		// Extract endpoint and PKA from kernel to preserve them in DB (Task 8b).
+		// Extract endpoint and PKA from kernel to preserve them in DB.
 		kernelEndpoint, kernelPKA := extractKernelPeerInfo(wgPeer)
 
-		if r.cfg.AutoApproveUnknown {
-			// Dev mode: keep unknown peer in kernel, register as enabled + auto_discovered.
-			log.Printf("WARN: unknown peer discovered and auto-approved: %s", pubKeyStr)
+		// Strict mode (always): remove from kernel, insert as disabled.
+		log.Printf("WARN: unknown peer discovered and removed from runtime %s", pubKeyStr)
 
-			shortKey := pubKeyStr
-			if len(shortKey) > 8 {
-				shortKey = shortKey[:8]
-			}
-			friendlyName := "unknown-" + shortKey
+		if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
+			log.Printf("ERROR: failed to remove unknown peer %s: %v", pubKeyStr, err)
+		}
 
-			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, true, kernelEndpoint, kernelPKA); err != nil {
-				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
-			}
-		} else {
-			// Strict mode (default): remove from kernel, insert as disabled.
-			log.Printf("WARN: unknown peer discovered and removed from runtime %s", pubKeyStr)
+		shortKey := pubKeyStr
+		if len(shortKey) > 8 {
+			shortKey = shortKey[:8]
+		}
+		friendlyName := "unknown-" + shortKey
 
-			if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
-				log.Printf("ERROR: failed to remove unknown peer %s: %v", pubKeyStr, err)
-			}
-
-			shortKey := pubKeyStr
-			if len(shortKey) > 8 {
-				shortKey = shortKey[:8]
-			}
-			friendlyName := "unknown-" + shortKey
-
-			// Preserve endpoint/PKA even for disabled peers — admin can approve later.
-			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, false, kernelEndpoint, kernelPKA); err != nil {
-				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
-			}
+		// Store runtime endpoint in last_seen_endpoint (NOT configured_endpoint).
+		if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, false, kernelEndpoint, kernelPKA); err != nil {
+			log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
 		}
 	}
 
@@ -187,6 +172,16 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 			AllowedIPs: allowedNets,
 		}
 
+		// Pass PSK from DB to kernel (graceful — if corrupted, skip PSK).
+		if dbPeer.PresharedKey != "" {
+			psk, pskErr := wireguard.ParseKey(dbPeer.PresharedKey)
+			if pskErr != nil {
+				log.Printf("WARN: invalid PSK for peer %s, re-adding without PSK: %v", pubKeyStr, pskErr)
+			} else {
+				peerCfg.PresharedKey = &psk
+			}
+		}
+
 		// Pass Endpoint from DB to kernel (best-effort DNS resolution).
 		if dbPeer.Endpoint != "" {
 			udpAddr, resolveErr := net.ResolveUDPAddr("udp", dbPeer.Endpoint)
@@ -214,6 +209,28 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		log.Printf("WARNING: conf rewrite failed during reconcile: %v", err)
 	}
 
+	// Step 4: Delta-only update of last_seen_endpoint for all known peers.
+	// Compare kernel endpoints with DB last_seen_endpoint, update only changed values.
+	lastSeenDeltas := make(map[string]string)
+	for pubKeyStr, wgPeer := range kernelPeers {
+		dbPeer, exists := dbPeerSet[pubKeyStr]
+		if !exists {
+			continue // unknown peer already handled above
+		}
+		kernelEP := ""
+		if wgPeer.Endpoint != nil {
+			kernelEP = wgPeer.Endpoint.String()
+		}
+		if kernelEP != dbPeer.LastSeenEndpoint {
+			lastSeenDeltas[pubKeyStr] = kernelEP
+		}
+	}
+	if len(lastSeenDeltas) > 0 {
+		if err := r.store.UpdateLastSeenEndpoints(lastSeenDeltas); err != nil {
+			log.Printf("WARNING: failed to update last_seen_endpoints: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -233,6 +250,7 @@ func (r *Reconciler) rewriteConf() error {
 		pc := confwriter.PeerConf{
 			PublicKey:    p.PublicKey,
 			AllowedIPs:   p.AllowedIPs,
+			PresharedKey: p.PresharedKey,
 			FriendlyName: p.FriendlyName,
 			CreatedAt:    p.CreatedAt,
 			Notes:        p.Notes,

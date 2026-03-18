@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePeers } from '@/api/hooks'
-import { deletePeer, approvePeer } from '@/api/client'
+import { deletePeer, updatePeer } from '@/api/client'
 import { formatBytes, truncateKey, isPeerOnline } from '@/lib/format'
 import { useConnection } from '@/components/ConnectionContext'
 import { usePeerFilters } from '@/hooks/usePeerFilters'
 import { usePageTitle } from '@/hooks/usePageTitle'
+import ApproveDialog from '@/components/ApproveDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -57,6 +58,8 @@ export default function PeersPage() {
   const { data: peers, isLoading, error } = usePeers()
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [approveTarget, setApproveTarget] = useState(null)
+  const [disableTarget, setDisableTarget] = useState(null)
   const { isConnected } = useConnection()
 
   const {
@@ -76,11 +79,12 @@ export default function PeersPage() {
     onError: (err) => toast.error(err.message),
   })
 
-  const approveMut = useMutation({
-    mutationFn: (id) => approvePeer(id),
-    onSuccess: () => {
+  const toggleEnabledMut = useMutation({
+    mutationFn: ({ id, enabled }) => updatePeer(id, { enabled }),
+    onSuccess: (_, { enabled }) => {
       queryClient.invalidateQueries({ queryKey: ['peers'] })
-      toast.success('Peer approved')
+      setDisableTarget(null)
+      toast.success(enabled ? 'Peer enabled' : 'Peer disabled')
     },
     onError: (err) => toast.error(err.message),
   })
@@ -154,7 +158,7 @@ export default function PeersPage() {
                 {filteredPeers.map(peer => {
                   const online = isPeerOnline(peer.latest_handshake)
                   return (
-                    <TableRow key={peer.id}>
+                    <TableRow key={peer.id} className={!peer.enabled ? 'opacity-50' : ''}>
                       <TableCell className="font-medium">
                         {peer.friendly_name || '—'}
                         {peer.auto_discovered && (
@@ -173,8 +177,14 @@ export default function PeersPage() {
                       </TableCell>
                       <TableCell className="text-right space-x-1">
                         <Button variant="ghost" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>
-                        {peer.auto_discovered && (
-                          <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
+                        {peer.auto_discovered && !peer.enabled && (
+                          <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => setApproveTarget(peer)}>Approve</Button>
+                        )}
+                        {!peer.auto_discovered && (
+                          <Button variant="ghost" size="sm" disabled={!isConnected}
+                            onClick={() => peer.enabled ? setDisableTarget(peer) : toggleEnabledMut.mutate({ id: peer.id, enabled: true })}>
+                            {peer.enabled ? 'Disable' : 'Enable'}
+                          </Button>
                         )}
                         <Button variant="ghost" size="sm" className="text-destructive" disabled={!isConnected} onClick={() => setDeleteTarget(peer)}>Delete</Button>
                       </TableCell>
@@ -206,8 +216,14 @@ export default function PeersPage() {
                     <p className="text-xs text-muted-foreground">↓{formatBytes(peer.transfer_rx)} ↑{formatBytes(peer.transfer_tx)}</p>
                     <div className="flex gap-2 pt-1">
                       <Button variant="outline" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>
-                      {peer.auto_discovered && (
-                        <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => approveMut.mutate(peer.id)}>Approve</Button>
+                      {peer.auto_discovered && !peer.enabled && (
+                        <Button variant="outline" size="sm" disabled={!isConnected} onClick={() => setApproveTarget(peer)}>Approve</Button>
+                      )}
+                      {!peer.auto_discovered && (
+                        <Button variant="outline" size="sm" disabled={!isConnected}
+                          onClick={() => peer.enabled ? setDisableTarget(peer) : toggleEnabledMut.mutate({ id: peer.id, enabled: true })}>
+                          {peer.enabled ? 'Disable' : 'Enable'}
+                        </Button>
                       )}
                       <Button variant="outline" size="sm" className="text-destructive" disabled={!isConnected} onClick={() => setDeleteTarget(peer)}>Delete</Button>
                     </div>
@@ -236,6 +252,31 @@ export default function PeersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Disable confirmation dialog */}
+      <Dialog open={!!disableTarget} onOpenChange={() => setDisableTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disable Peer</DialogTitle>
+            <DialogDescription>
+              Peer &quot;{disableTarget?.friendly_name || truncateKey(disableTarget?.public_key)}&quot; will be disconnected. You can re-enable it later.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisableTarget(null)}>Cancel</Button>
+            <Button onClick={() => toggleEnabledMut.mutate({ id: disableTarget?.id, enabled: false })} disabled={toggleEnabledMut.isPending || !isConnected}>
+              {toggleEnabledMut.isPending ? 'Disabling…' : 'Disable'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve onboarding dialog */}
+      <ApproveDialog
+        peer={approveTarget}
+        open={!!approveTarget}
+        onClose={() => setApproveTarget(null)}
+      />
 
     </div>
   )

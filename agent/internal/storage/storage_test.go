@@ -24,8 +24,8 @@ func TestNewDB_InMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querying schema_version: %v", err)
 	}
-	if count != 4 {
-		t.Errorf("expected 4 migrations recorded, got %d", count)
+	if count != 6 {
+		t.Errorf("expected 6 migrations recorded, got %d", count)
 	}
 
 	// Verify peers table exists.
@@ -201,8 +201,8 @@ func TestUpsertPeerFromReconcile_PreservesEndpointAndPKA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPeerByPubKey: %v", err)
 	}
-	if got.Endpoint != "10.0.0.2:51820" {
-		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "10.0.0.2:51820")
+	if got.LastSeenEndpoint != "10.0.0.2:51820" {
+		t.Errorf("LastSeenEndpoint: got %q, want %q", got.LastSeenEndpoint, "10.0.0.2:51820")
 	}
 	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 25 {
 		t.Errorf("PersistentKeepalive: got %v, want 25", got.PersistentKeepalive)

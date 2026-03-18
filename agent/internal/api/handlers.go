@@ -209,11 +209,62 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate client_address CIDR format if provided.
+	if req.ClientAddress != "" {
+		if _, _, err := net.ParseCIDR(req.ClientAddress); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("invalid client_address CIDR format %q", req.ClientAddress))
+			return
+		}
+		// Check uniqueness.
+		taken, err := h.store.IsClientAddressTaken(req.ClientAddress, "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+			return
+		}
+		if taken {
+			writeError(w, http.StatusConflict, "conflict",
+				fmt.Sprintf("client_address %q is already assigned to another peer", req.ClientAddress))
+			return
+		}
+	}
+
 	// Generate keypair.
 	privKey, pubKey, err := h.wgClient.GenerateKeyPair()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "keygen_error", err.Error())
 		return
+	}
+
+	// Resolve PSK: profile flag OR request field.
+	var pskStr string
+	var pskKey *wgtypes.Key
+	shouldGeneratePSK := req.PresharedKey == "auto"
+	if !shouldGeneratePSK && hasProfile {
+		// Check profile's use_preshared_key flag.
+		profile, profErr := h.store.GetProfile(*req.Profile)
+		if profErr == nil && profile.UsePresharedKey {
+			shouldGeneratePSK = true
+		}
+	}
+	if shouldGeneratePSK {
+		generated, genErr := h.wgClient.GeneratePresharedKey()
+		if genErr != nil {
+			writeError(w, http.StatusInternalServerError, "psk_error", genErr.Error())
+			return
+		}
+		pskStr = generated.String()
+		pskKey = &generated
+	} else if req.PresharedKey != "" && req.PresharedKey != "auto" {
+		// Explicit base64 PSK provided — validate and use.
+		parsed, parseErr := wireguard.ParseKey(req.PresharedKey)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("invalid preshared_key: %v", parseErr))
+			return
+		}
+		pskStr = req.PresharedKey
+		pskKey = &parsed
 	}
 
 	// Parse allowed IPs for wgctrl.
@@ -225,8 +276,9 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 
 	// Add to wgctrl.
 	wgPeerCfg := wireguard.PeerConfig{
-		PublicKey:  pubKey,
-		AllowedIPs: allowedNets,
+		PublicKey:    pubKey,
+		AllowedIPs:   allowedNets,
+		PresharedKey: pskKey,
 	}
 	// Parse endpoint for wgctrl (best-effort — DNS may not resolve yet).
 	if req.ConfiguredEndpoint != "" {
@@ -258,6 +310,9 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		PersistentKeepalive: req.PersistentKeepalive,
 		ClientDNS:           req.ClientDNS,
 		ClientMTU:           req.ClientMTU,
+		ClientAddress:       req.ClientAddress,
+		PresharedKey:        pskStr,
+		ClientAllowedIPs:    req.ClientAllowedIPs,
 	}
 	if hasProfile {
 		dbPeer.Profile = req.Profile
@@ -295,6 +350,9 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		PersistentKeepalive: req.PersistentKeepalive,
 		ClientDNS:           req.ClientDNS,
 		ClientMTU:           req.ClientMTU,
+		ClientAddress:       req.ClientAddress,
+		HasPresharedKey:     pskStr != "",
+		ClientAllowedIPs:    req.ClientAllowedIPs,
 	}
 
 	// Resolve client conf cascade for the response.
@@ -380,6 +438,8 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 		privKey    wgtypes.Key
 		pubKey     wgtypes.Key
 		allowedIPs []string
+		pskStr     string        // base64 PSK for DB storage; empty = no PSK
+		pskKey     *wgtypes.Key  // parsed PSK for wgctrl; nil = no PSK
 		req        CreatePeerRequest
 	}
 
@@ -420,10 +480,41 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Resolve PSK per peer.
+		var pskStr string
+		var pskKey *wgtypes.Key
+		shouldGenPSK := p.PresharedKey == "auto"
+		if !shouldGenPSK && hasProfile {
+			profile, profErr := h.store.GetProfile(*p.Profile)
+			if profErr == nil && profile.UsePresharedKey {
+				shouldGenPSK = true
+			}
+		}
+		if shouldGenPSK {
+			generated, genErr := h.wgClient.GeneratePresharedKey()
+			if genErr != nil {
+				writeError(w, http.StatusInternalServerError, "psk_error", genErr.Error())
+				return
+			}
+			pskStr = generated.String()
+			pskKey = &generated
+		} else if p.PresharedKey != "" && p.PresharedKey != "auto" {
+			parsed, parseErr := wireguard.ParseKey(p.PresharedKey)
+			if parseErr != nil {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					fmt.Sprintf("peer[%d]: invalid preshared_key: %v", i, parseErr))
+				return
+			}
+			pskStr = p.PresharedKey
+			pskKey = &parsed
+		}
+
 		resolved = append(resolved, resolvedPeer{
 			privKey:    priv,
 			pubKey:     pub,
 			allowedIPs: ips,
+			pskStr:     pskStr,
+			pskKey:     pskKey,
 			req:        p,
 		})
 	}
@@ -437,8 +528,9 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 			nets = append(nets, *ipNet)
 		}
 		wgCfg := wireguard.PeerConfig{
-			PublicKey:  rp.pubKey,
-			AllowedIPs: nets,
+			PublicKey:    rp.pubKey,
+			AllowedIPs:   nets,
+			PresharedKey: rp.pskKey,
 		}
 		// Pass endpoint to wgctrl (best-effort DNS resolution).
 		if rp.req.ConfiguredEndpoint != "" {
@@ -481,6 +573,8 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 			PersistentKeepalive: rp.req.PersistentKeepalive,
 			ClientDNS:           rp.req.ClientDNS,
 			ClientMTU:           rp.req.ClientMTU,
+			PresharedKey:        rp.pskStr,
+			ClientAllowedIPs:    rp.req.ClientAllowedIPs,
 		}
 		if rp.req.Profile != nil && *rp.req.Profile != "" {
 			dbPeer.Profile = rp.req.Profile
@@ -744,6 +838,31 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 	if req.ClientMTU != nil {
 		dbUpdate.ClientMTU = req.ClientMTU
 	}
+	if req.ClientAddress != nil {
+		// Validate CIDR format.
+		if *req.ClientAddress != "" {
+			if _, _, err := net.ParseCIDR(*req.ClientAddress); err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					fmt.Sprintf("invalid client_address CIDR format %q", *req.ClientAddress))
+				return
+			}
+			// Check uniqueness (exclude current peer).
+			taken, err := h.store.IsClientAddressTaken(*req.ClientAddress, existing.PublicKey)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+				return
+			}
+			if taken {
+				writeError(w, http.StatusConflict, "conflict",
+					fmt.Sprintf("client_address %q is already assigned to another peer", *req.ClientAddress))
+				return
+			}
+		}
+		dbUpdate.ClientAddress = req.ClientAddress
+	}
+	if req.ClientAllowedIPs != nil {
+		dbUpdate.ClientAllowedIPs = req.ClientAllowedIPs
+	}
 
 	// Update wgctrl if endpoint or PKA changed (server-side conf fields).
 	if endpointChanged || pkaChanged {
@@ -843,11 +962,36 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save old PSK for rollback.
+	oldPSKStr := peer.PresharedKey
+	var oldPSKKey *wgtypes.Key
+	if oldPSKStr != "" {
+		parsed, parseErr := wireguard.ParseKey(oldPSKStr)
+		if parseErr != nil {
+			log.Printf("WARN: could not parse existing PSK for peer %d: %v — rotating without PSK rollback", peer.ID, parseErr)
+		} else {
+			oldPSKKey = &parsed
+		}
+	}
+
 	// Generate new keypair.
 	newPrivKey, newPubKey, err := h.wgClient.GenerateKeyPair()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "keygen_error", err.Error())
 		return
+	}
+
+	// If peer had a PSK, generate a new one.
+	var newPSKStr string
+	var newPSKKey *wgtypes.Key
+	if oldPSKStr != "" {
+		generated, genErr := h.wgClient.GeneratePresharedKey()
+		if genErr != nil {
+			writeError(w, http.StatusInternalServerError, "psk_error", genErr.Error())
+			return
+		}
+		newPSKStr = generated.String()
+		newPSKKey = &generated
 	}
 
 	// Parse existing allowed IPs.
@@ -872,15 +1016,16 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 	// Step 2: Add new peer to wgctrl.
 	err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
 		{
-			PublicKey:  newPubKey,
-			AllowedIPs: allowedNets,
+			PublicKey:    newPubKey,
+			AllowedIPs:   allowedNets,
+			PresharedKey: newPSKKey,
 		},
 	})
 	if err != nil {
 		// Attempt to re-add old peer (best-effort rollback).
 		log.Printf("ERROR: adding new peer to wgctrl failed: %v — attempting rollback", err)
 		rollbackErr := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
-			{PublicKey: oldPubKey, AllowedIPs: allowedNets},
+			{PublicKey: oldPubKey, AllowedIPs: allowedNets, PresharedKey: oldPSKKey},
 		})
 		if rollbackErr != nil {
 			log.Printf("ERROR: rollback failed: %v", rollbackErr)
@@ -889,7 +1034,7 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 3: Update SQLite.
+	// Step 3: Update SQLite — public key first, then PSK.
 	if err := h.store.UpdatePeerPublicKey(peer.PublicKey, newPubKey.String()); err != nil {
 		// Rollback wgctrl: remove new, re-add old.
 		log.Printf("ERROR: DB update failed: %v — rolling back wgctrl", err)
@@ -897,12 +1042,32 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 			log.Printf("CRITICAL: wgctrl remove-new rollback failed: %v", rbErr)
 		}
 		if rbErr := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
-			{PublicKey: oldPubKey, AllowedIPs: allowedNets},
+			{PublicKey: oldPubKey, AllowedIPs: allowedNets, PresharedKey: oldPSKKey},
 		}); rbErr != nil {
 			log.Printf("CRITICAL: wgctrl re-add-old rollback failed: %v", rbErr)
 		}
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
+	}
+	// Update PSK in DB (peer now has newPubKey after UpdatePeerPublicKey).
+	if newPSKStr != "" {
+		if pskErr := h.store.UpdatePeer(newPubKey.String(), &storage.PeerUpdate{PresharedKey: &newPSKStr}); pskErr != nil {
+			log.Printf("ERROR: PSK DB update failed: %v — rolling back", pskErr)
+			// Rollback: restore old pubkey (PSK wasn't successfully updated, DB still has old PSK).
+			if rbErr := h.store.UpdatePeerPublicKey(newPubKey.String(), peer.PublicKey); rbErr != nil {
+				log.Printf("CRITICAL: DB pubkey rollback failed: %v", rbErr)
+			}
+			if rbErr := h.wgClient.RemovePeer(h.cfg.Interface, newPubKey); rbErr != nil {
+				log.Printf("CRITICAL: wgctrl remove-new rollback failed: %v", rbErr)
+			}
+			if rbErr := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
+				{PublicKey: oldPubKey, AllowedIPs: allowedNets, PresharedKey: oldPSKKey},
+			}); rbErr != nil {
+				log.Printf("CRITICAL: wgctrl re-add-old rollback failed: %v", rbErr)
+			}
+			writeError(w, http.StatusInternalServerError, "db_error", pskErr.Error())
+			return
+		}
 	}
 
 	// Step 4: Rewrite conf — rollback everything on failure.
@@ -912,12 +1077,16 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		if rbErr := h.store.UpdatePeerPublicKey(newPubKey.String(), peer.PublicKey); rbErr != nil {
 			log.Printf("CRITICAL: DB rollback failed during key rotation: %v", rbErr)
 		}
+		// Restore old PSK in DB.
+		if rbErr := h.store.UpdatePeer(peer.PublicKey, &storage.PeerUpdate{PresharedKey: &oldPSKStr}); rbErr != nil {
+			log.Printf("CRITICAL: PSK DB rollback failed: %v", rbErr)
+		}
 		// Rollback wgctrl: remove new, re-add old.
 		if rbErr := h.wgClient.RemovePeer(h.cfg.Interface, newPubKey); rbErr != nil {
 			log.Printf("CRITICAL: wgctrl remove-new rollback failed: %v", rbErr)
 		}
 		if rbErr := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
-			{PublicKey: oldPubKey, AllowedIPs: allowedNets},
+			{PublicKey: oldPubKey, AllowedIPs: allowedNets, PresharedKey: oldPSKKey},
 		}); rbErr != nil {
 			log.Printf("CRITICAL: wgctrl re-add-old rollback failed: %v", rbErr)
 		}
@@ -941,7 +1110,12 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conf := h.buildClientConf(peer, newPrivKey.String(), serverPubKey, serverPort)
+	// Build a synthetic peer with updated public key and PSK for conf generation.
+	rotatedPeer := *peer
+	rotatedPeer.PublicKey = newPubKey.String()
+	rotatedPeer.PresharedKey = newPSKStr
+
+	conf := h.buildClientConf(&rotatedPeer, newPrivKey.String(), serverPubKey, serverPort)
 
 	// Generate QR code as base64 PNG (one-time — never stored).
 	qrBase64 := ""
@@ -963,7 +1137,8 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // ApprovePeer handles POST /api/peers/{id}/approve.
-// Approves an auto-discovered peer that was blocked by the reconciler.
+// Expands auto-discovered peer approval to full onboarding with peer configuration.
+// Requires client_address in request body.
 func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -992,36 +1167,129 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally accept allowed_ips in request body.
-	var reqBody struct {
-		AllowedIPs []string `json:"allowed_ips,omitempty"`
-	}
+	// Parse full onboarding request.
+	var req ApprovePeerRequest
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
 	}
 
+	// client_address is required for approve.
+	if req.ClientAddress == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "client_address is required")
+		return
+	}
+	if _, _, err := net.ParseCIDR(req.ClientAddress); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			fmt.Sprintf("invalid client_address CIDR format %q", req.ClientAddress))
+		return
+	}
+	taken, err := h.store.IsClientAddressTaken(req.ClientAddress, peer.PublicKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+	if taken {
+		writeError(w, http.StatusConflict, "conflict",
+			fmt.Sprintf("client_address %q is already assigned to another peer", req.ClientAddress))
+		return
+	}
+
+	// Resolve allowed IPs: from profile or from request or keep existing.
 	allowedIPsStr := peer.AllowedIPs
-	if len(reqBody.AllowedIPs) > 0 {
-		if err := middleware.ValidateAllowedIPs(reqBody.AllowedIPs); err != nil {
+	hasProfile := req.Profile != nil && *req.Profile != ""
+
+	if hasProfile {
+		profile, err := h.store.GetProfile(*req.Profile)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("profile %q not found", *req.Profile))
+			} else {
+				writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+			}
+			return
+		}
+		result, err := wireguard.ComputeAllowedIPs(profile.AllowedIPs, profile.ExcludeIPs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "cidr_error", err.Error())
+			return
+		}
+		allowedIPsStr = strings.Join(result.Prefixes, ",")
+	} else if len(req.AllowedIPs) > 0 {
+		if err := middleware.ValidateAllowedIPs(req.AllowedIPs); err != nil {
 			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
-		allowedIPsStr = strings.Join(reqBody.AllowedIPs, ",")
-		// Update allowed_ips in DB.
-		newIPs := allowedIPsStr
-		if err := h.store.UpdatePeer(peer.PublicKey, &storage.PeerUpdate{AllowedIPs: &newIPs}); err != nil {
-			writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		allowedIPsStr = strings.Join(req.AllowedIPs, ",")
+	}
+
+	// Validate friendly_name if provided.
+	friendlyName := peer.FriendlyName
+	if req.FriendlyName != "" {
+		if err := middleware.ValidateFriendlyName(req.FriendlyName); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		friendlyName = req.FriendlyName
+	}
+
+	// Validate endpoint if provided.
+	if req.ConfiguredEndpoint != "" {
+		if _, _, err := net.SplitHostPort(req.ConfiguredEndpoint); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("invalid endpoint format %q: must be host:port", req.ConfiguredEndpoint))
 			return
 		}
 	}
 
-	// Update DB: enabled=true, auto_discovered=false.
+	// Validate persistent_keepalive range.
+	if req.PersistentKeepalive != nil {
+		if *req.PersistentKeepalive < 0 || *req.PersistentKeepalive > 65535 {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				"persistent_keepalive must be 0-65535")
+			return
+		}
+	}
+
+	// Build DB update with all provided fields.
+	dbUpdate := &storage.PeerUpdate{
+		FriendlyName: &friendlyName,
+		AllowedIPs:   &allowedIPsStr,
+		ClientAddress: &req.ClientAddress,
+	}
+	enabled := true
+	dbUpdate.Enabled = &enabled
+
+	if hasProfile {
+		dbUpdate.Profile = &req.Profile
+	}
+	if req.ConfiguredEndpoint != "" {
+		dbUpdate.Endpoint = &req.ConfiguredEndpoint
+	}
+	if req.ClientDNS != "" {
+		dbUpdate.ClientDNS = &req.ClientDNS
+	}
+	if req.ClientMTU != nil {
+		dbUpdate.ClientMTU = &req.ClientMTU
+	}
+	if req.PersistentKeepalive != nil {
+		dbUpdate.PersistentKeepalive = &req.PersistentKeepalive
+	}
+
+	// Update DB: apply all fields + enabled=true, auto_discovered=false.
+	if err := h.store.UpdatePeer(peer.PublicKey, dbUpdate); err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+	// Clear auto_discovered flag separately (ApprovePeer sets enabled=1, auto_discovered=0).
 	if err := h.store.ApprovePeer(peer.PublicKey); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
 
-	// Add to wgctrl.
+	// Configure wgctrl with AllowedIPs + endpoint + PKA.
 	pubKeyBytes, err := wireguard.ParseKey(peer.PublicKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "key_parse_error", err.Error())
@@ -1038,23 +1306,62 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
-		{PublicKey: pubKeyBytes, AllowedIPs: allowedNets},
-	}); err != nil {
+	wgCfg := wireguard.PeerConfig{
+		PublicKey:         pubKeyBytes,
+		AllowedIPs:        allowedNets,
+		ReplaceAllowedIPs: true,
+	}
+	if req.ConfiguredEndpoint != "" {
+		udpAddr, resolveErr := net.ResolveUDPAddr("udp", req.ConfiguredEndpoint)
+		if resolveErr != nil {
+			log.Printf("WARN: endpoint DNS resolution failed for %q during approve: %v", req.ConfiguredEndpoint, resolveErr)
+		} else {
+			wgCfg.Endpoint = udpAddr
+		}
+	}
+	if req.PersistentKeepalive != nil {
+		d := time.Duration(*req.PersistentKeepalive) * time.Second
+		wgCfg.PersistentKeepalive = &d
+	}
+
+	if err := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{wgCfg}); err != nil {
 		log.Printf("WARNING: wgctrl configure failed during approve: %v", err)
 	}
 
 	// Rewrite conf (debounced — non-critical).
 	h.notifyConfChange()
 
-	// Re-read and return.
+	// Re-read and return full PeerResponse.
 	updated, err := h.store.GetPeerByID(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, peerToResponse(*updated))
+	resp := peerToResponse(*updated)
+
+	// Merge live wgctrl data if available.
+	dev, devErr := h.wgClient.GetDevice(h.cfg.Interface)
+	if devErr == nil {
+		for _, wgp := range dev.Peers {
+			if wgp.PublicKey.String() == updated.PublicKey {
+				if wgp.Endpoint != nil {
+					resp.Endpoint = wgp.Endpoint.String()
+				}
+				if !wgp.LastHandshake.IsZero() {
+					resp.LatestHandshake = &wgp.LastHandshake
+				}
+				resp.TransferRx = wgp.ReceiveBytes
+				resp.TransferTx = wgp.TransmitBytes
+				break
+			}
+		}
+	}
+
+	// Resolve client conf cascade.
+	h.resolveClientConfForPeer(&resp, *updated, nil)
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // DeletePeer handles DELETE /api/peers/{id}.
@@ -1185,14 +1492,15 @@ func (h *Handlers) serverEndpoint(listenPort int) string {
 }
 
 // buildClientConf generates a WireGuard client .conf string for a peer,
-// using the 4-level cascade for DNS, MTU, PersistentKeepalive.
+// using the 4-level cascade for DNS, MTU, PersistentKeepalive, ClientAllowedIPs.
 // privateKey is empty for template-only confs (GetPeerConf).
 func (h *Handlers) buildClientConf(peer *storage.Peer, privateKey string, serverPubKey string, serverPort int) string {
 	// Resolve cascade.
 	peerVals := confwriter.ClientConfPeerValues{
-		DNS: peer.ClientDNS,
-		MTU: peer.ClientMTU,
-		PKA: peer.PersistentKeepalive,
+		DNS:              peer.ClientDNS,
+		MTU:              peer.ClientMTU,
+		PKA:              peer.PersistentKeepalive,
+		ClientAllowedIPs: peer.ClientAllowedIPs,
 	}
 	var profileVals *confwriter.ClientConfProfileValues
 	if peer.Profile != nil && *peer.Profile != "" {
@@ -1201,26 +1509,39 @@ func (h *Handlers) buildClientConf(peer *storage.Peer, privateKey string, server
 			log.Printf("WARN: could not load profile %q for client conf: %v", *peer.Profile, err)
 		} else {
 			profileVals = &confwriter.ClientConfProfileValues{
-				DNS: profile.ClientDNS,
-				MTU: profile.ClientMTU,
-				PKA: profile.PersistentKeepalive,
+				DNS:              profile.ClientDNS,
+				MTU:              profile.ClientMTU,
+				PKA:              profile.PersistentKeepalive,
+				ClientAllowedIPs: profile.ClientAllowedIPs,
 			}
 		}
 	}
 	defaults := confwriter.ClientConfDefaults{
-		DNS: h.cfg.PeerDefaults.ClientDNS,
-		MTU: h.cfg.PeerDefaults.ClientMTU,
-		PKA: h.cfg.PeerDefaults.ClientPersistentKeepalive,
+		DNS:              h.cfg.PeerDefaults.ClientDNS,
+		MTU:              h.cfg.PeerDefaults.ClientMTU,
+		PKA:              h.cfg.PeerDefaults.ClientPersistentKeepalive,
+		ClientAllowedIPs: h.cfg.PeerDefaults.ClientAllowedIPs,
 	}
 	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
 
+	// Resolve client address: explicit client_address → /32 fallback → error.
+	clientAddr, addrErr := confwriter.ResolveClientAddress(peer.ClientAddress, peer.AllowedIPs)
+	if addrErr != nil {
+		log.Printf("WARN: could not resolve client address for peer %s: %v", peer.PublicKey, addrErr)
+		clientAddr = peer.AllowedIPs // best-effort fallback for conf generation
+	}
+
 	b := confwriter.NewClientConfBuilder()
-	b.SetAddress(peer.AllowedIPs).
+	b.SetAddress(clientAddr).
 		SetServerPublicKey(serverPubKey).
 		SetServerEndpoint(h.serverEndpoint(serverPort)).
 		SetDNS(rc.DNS).
 		SetMTU(rc.MTU).
-		SetPersistentKeepalive(rc.PKA)
+		SetPersistentKeepalive(rc.PKA).
+		SetClientAllowedIPs(rc.ClientAllowedIPs)
+	if peer.PresharedKey != "" {
+		b.SetPresharedKey(peer.PresharedKey)
+	}
 	if privateKey != "" {
 		b.SetPrivateKey(privateKey)
 	}
@@ -1270,6 +1591,7 @@ func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
 		pc := confwriter.PeerConf{
 			PublicKey:    p.PublicKey,
 			AllowedIPs:   p.AllowedIPs,
+			PresharedKey: p.PresharedKey,
 			FriendlyName: p.FriendlyName,
 			CreatedAt:    p.CreatedAt,
 			Notes:        p.Notes,
@@ -1304,6 +1626,11 @@ func peerToResponse(p storage.Peer) PeerResponse {
 		PersistentKeepalive: p.PersistentKeepalive,
 		ClientDNS:           p.ClientDNS,
 		ClientMTU:           p.ClientMTU,
+		ClientAddress:       p.ClientAddress,
+		LastSeenEndpoint:    p.LastSeenEndpoint,
+		// Phase 2: PSK — only expose status (never value); client_allowed_ips is safe to show.
+		HasPresharedKey:  p.PresharedKey != "",
+		ClientAllowedIPs: p.ClientAllowedIPs,
 	}
 }
 
@@ -1313,9 +1640,10 @@ func peerToResponse(p storage.Peer) PeerResponse {
 // If profileMap is nil and peer has a profile, it will be loaded from DB.
 func (h *Handlers) resolveClientConfForPeer(resp *PeerResponse, peer storage.Peer, profileMap map[string]*storage.Profile) {
 	peerVals := confwriter.ClientConfPeerValues{
-		DNS: peer.ClientDNS,
-		MTU: peer.ClientMTU,
-		PKA: peer.PersistentKeepalive,
+		DNS:              peer.ClientDNS,
+		MTU:              peer.ClientMTU,
+		PKA:              peer.PersistentKeepalive,
+		ClientAllowedIPs: peer.ClientAllowedIPs,
 	}
 
 	var profileVals *confwriter.ClientConfProfileValues
@@ -1332,17 +1660,19 @@ func (h *Handlers) resolveClientConfForPeer(resp *PeerResponse, peer storage.Pee
 		}
 		if profile != nil {
 			profileVals = &confwriter.ClientConfProfileValues{
-				DNS: profile.ClientDNS,
-				MTU: profile.ClientMTU,
-				PKA: profile.PersistentKeepalive,
+				DNS:              profile.ClientDNS,
+				MTU:              profile.ClientMTU,
+				PKA:              profile.PersistentKeepalive,
+				ClientAllowedIPs: profile.ClientAllowedIPs,
 			}
 		}
 	}
 
 	defaults := confwriter.ClientConfDefaults{
-		DNS: h.cfg.PeerDefaults.ClientDNS,
-		MTU: h.cfg.PeerDefaults.ClientMTU,
-		PKA: h.cfg.PeerDefaults.ClientPersistentKeepalive,
+		DNS:              h.cfg.PeerDefaults.ClientDNS,
+		MTU:              h.cfg.PeerDefaults.ClientMTU,
+		PKA:              h.cfg.PeerDefaults.ClientPersistentKeepalive,
+		ClientAllowedIPs: h.cfg.PeerDefaults.ClientAllowedIPs,
 	}
 
 	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
@@ -1352,4 +1682,6 @@ func (h *Handlers) resolveClientConfForPeer(resp *PeerResponse, peer storage.Pee
 	resp.ResolvedClientMTUSource = rc.MTUSource
 	resp.ResolvedClientPKA = rc.PKA
 	resp.ResolvedClientPKASource = rc.PKASource
+	resp.ResolvedClientAllowedIPs = rc.ClientAllowedIPs
+	resp.ResolvedClientAllowedIPsSource = rc.ClientAllowedIPsSource
 }

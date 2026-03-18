@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.13.0] — 2026-03-18
+
+### Added
+
+- **`client_address` field** — new peer field (CIDR, e.g. `10.0.0.2/32`) used as `[Interface] Address` in client download config. Validated at application level and enforced by partial unique DB index. Required for profile-based peers; /32 `AllowedIPs` used as fallback for legacy peers.
+- **`last_seen_endpoint` field** — informational runtime endpoint updated by reconciler on every cycle (delta-only — only changed values written). Shown in API response and UI as read-only "Last Seen" field. Completely separate from `configured_endpoint` (not written to wg0.conf).
+- **Approve onboarding** — `POST /api/peers/{id}/approve` expanded to full peer configuration: `friendly_name`, `profile`, `allowed_ips`, `client_address` (required), `configured_endpoint`, `client_dns`, `client_mtu`, `persistent_keepalive`. UI dialog shows `last_seen_endpoint` read-only with Copy button.
+- **Disable/Enable peer toggle** — Enable/Disable button on peer list and edit page. Confirmation dialog before disable. Disabled peers shown grayed out.
+- **PresharedKey full lifecycle** — `preshared_key` DB column with auto-generation via `wgtypes.GenerateKey()`. Triggered by profile flag `use_preshared_key: true` or explicit `preshared_key: "auto"` in API/CLI. Included in server wg0.conf, wgctrl kernel config, and client download conf. New PSK generated on key rotation.
+- **PSK security** — PSK value never returned in `GET /api/peers` or `GET /api/peers/{id}`. Only `has_preshared_key: true/false` exposed. Full PSK returned one-time in create and rotate-keys responses (same pattern as PrivateKey).
+- **`client_allowed_ips` split-tunnel** — new field on Peer and Profile with 4-level cascade (peer → profile → global → fallback `0.0.0.0/0, ::/0`). Replaces hardcoded full-tunnel in ClientConfBuilder. Configurable via `WG_SOCKD_CLIENT_ALLOWED_IPS` env var and `peer_defaults.client_allowed_ips` in config.yaml.
+- **`use_preshared_key` profile flag** — when true, `CreatePeer` and `BatchCreatePeers` auto-generate a unique PSK per peer. Supported in `profiles create/update` CLI and UI.
+- **SQLite migrations 005 and 006** — `client_address`, `last_seen_endpoint` (005); `preshared_key`, `client_allowed_ips` on peers and profiles (006). All new columns use empty-string defaults — backward compatible.
+- **Startup warning** — agent logs WARN on start if any peers have empty `client_address` (client conf will fail for profile-based peers).
+- **CLI `--client-address` flag** — added to `peers add`, `peers update`, `peers approve`. `--preshared-key` flag (auto/explicit) added to `peers add`. `--client-allowed-ips` flag added to `peers add/update` and `profiles create/update`.
+
+### Fixed
+
+- **Client config `[Interface] Address` bug** — was incorrectly set to server-side `AllowedIPs` (e.g. `10.0.0.0/8`) instead of the client's VPN IP. Fixed by `ResolveClientAddress()` using `client_address` field.
+- **Reconciler endpoint pollution** — reconciler was writing runtime peer endpoint into `configured_endpoint` (wg0.conf), causing ephemeral roaming endpoints to persist. Runtime endpoint now stored only in `last_seen_endpoint`.
+- **Zombie peer detection** — reconciler now explicitly removes disabled-in-DB peers that remain in kernel (access-control bypass). Previously only unknown peers were handled.
+
+### Changed
+
+- **`auto_approve_unknown` removed** — breaking change. All unknown peers require admin review via approve flow. If `auto_approve_unknown: true` found in config.yaml at startup, WARN logged "deprecated and ignored". Documented in UPGRADING.md.
+- **Reconciler delta-only `last_seen_endpoint` updates** — collects all kernel endpoints, compares with DB, updates only changed peers in a single transaction. For stable networks = 0 writes per cycle.
+- **PSK rollback safety in RotateKeys** — old PSK saved before rotation; restored in DB and wgctrl if any step fails.
+- **Bump Helm chart version and appVersion to 0.13.0**
+- **Bump image tag to 0.13.0**
+
+### Breaking Changes
+
+- `auto_approve_unknown` config field removed. Update `config.yaml` to remove this field before upgrading. See UPGRADING.md.
+
 ## [v0.6.0] — 2026-03-17
 
 ### Added

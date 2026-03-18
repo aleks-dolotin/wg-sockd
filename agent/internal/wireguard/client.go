@@ -29,6 +29,10 @@ type WireGuardClient interface {
 	// GenerateKeyPair generates a new WireGuard private/public key pair.
 	GenerateKeyPair() (privateKey, publicKey wgtypes.Key, err error)
 
+	// GeneratePresharedKey generates a new random 32-byte preshared key.
+	// Equivalent to `wg genpsk`.
+	GeneratePresharedKey() (wgtypes.Key, error)
+
 	// Close releases underlying resources.
 	Close() error
 }
@@ -61,6 +65,7 @@ type PeerConfig struct {
 	Remove               bool
 	ReplaceAllowedIPs    bool
 	PersistentKeepalive  *time.Duration // nil = don't change, &0 = off, &25s = enable
+	PresharedKey         *wgtypes.Key   // nil = don't change, non-nil = set (use &zeroKey to clear)
 }
 
 // ParseKey parses a base64-encoded WireGuard key string into a wgtypes.Key.

@@ -60,6 +60,10 @@ func (m *mockWgClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	return priv, priv.PublicKey(), nil
 }
 
+func (m *mockWgClient) GeneratePresharedKey() (wgtypes.Key, error) {
+	return wgtypes.GenerateKey()
+}
+
 func (m *mockWgClient) Close() error { return nil }
 
 func newTestHandlers(t *testing.T) (*Handlers, *storage.DB) {
@@ -689,7 +693,9 @@ func TestApprovePeer_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("POST", "/api/peers/"+itoa(id)+"/approve", nil)
+	req := httptest.NewRequest("POST", "/api/peers/"+itoa(id)+"/approve",
+		strings.NewReader(`{"client_address":"10.0.0.99/32"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

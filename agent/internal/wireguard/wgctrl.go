@@ -66,6 +66,15 @@ func (w *WgctrlClient) GenerateKeyPair() (privateKey, publicKey wgtypes.Key, err
 	return priv, priv.PublicKey(), nil
 }
 
+// GeneratePresharedKey generates a new random 32-byte preshared key.
+func (w *WgctrlClient) GeneratePresharedKey() (wgtypes.Key, error) {
+	psk, err := wgtypes.GenerateKey()
+	if err != nil {
+		return wgtypes.Key{}, fmt.Errorf("generating preshared key: %w", err)
+	}
+	return psk, nil
+}
+
 // Close releases the underlying wgctrl client.
 func (w *WgctrlClient) Close() error {
 	return w.client.Close()
@@ -107,5 +116,6 @@ func peerConfigToWgctrl(pc PeerConfig) wgtypes.PeerConfig {
 		Remove:                      pc.Remove,
 		ReplaceAllowedIPs:           pc.ReplaceAllowedIPs,
 		PersistentKeepaliveInterval: pc.PersistentKeepalive,
+		PresharedKey:                pc.PresharedKey,
 	}
 }

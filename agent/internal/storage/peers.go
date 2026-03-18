@@ -8,7 +8,7 @@ import (
 )
 
 // scanPeerColumns is the canonical column list for all peer SELECT queries.
-const scanPeerColumns = `id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes, endpoint, persistent_keepalive, client_dns, client_mtu`
+const scanPeerColumns = `id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes, endpoint, persistent_keepalive, client_dns, client_mtu, client_address, last_seen_endpoint, preshared_key, client_allowed_ips`
 
 // scanPeer scans a peer row into a Peer struct.
 func scanPeer(scanner interface{ Scan(dest ...any) error }) (Peer, error) {
@@ -17,7 +17,8 @@ func scanPeer(scanner interface{ Scan(dest ...any) error }) (Peer, error) {
 	var mtu sql.NullInt64
 	if err := scanner.Scan(&p.ID, &p.PublicKey, &p.FriendlyName, &p.AllowedIPs, &p.Profile,
 		&p.Enabled, &p.AutoDiscovered, &p.CreatedAt, &p.Notes,
-		&p.Endpoint, &pka, &p.ClientDNS, &mtu); err != nil {
+		&p.Endpoint, &pka, &p.ClientDNS, &mtu, &p.ClientAddress, &p.LastSeenEndpoint,
+		&p.PresharedKey, &p.ClientAllowedIPs); err != nil {
 		return Peer{}, err
 	}
 	if pka.Valid {
@@ -46,6 +47,10 @@ type Peer struct {
 	PersistentKeepalive *int  // server-side PKA for wg0.conf; nil = inherit from profile/global
 	ClientDNS          string // client download conf DNS (empty = inherit)
 	ClientMTU          *int   // client download conf MTU; nil = inherit
+	ClientAddress      string // client's VPN IP (CIDR) for [Interface] Address in client conf
+	LastSeenEndpoint   string // runtime endpoint from kernel — informational, not in wg0.conf
+	PresharedKey       string // base64-encoded 32-byte PSK; empty = no PSK
+	ClientAllowedIPs   string // comma-separated CIDRs for client conf [Peer] AllowedIPs; empty = inherit
 }
 
 // PeerUpdate holds optional fields for partial peer updates.
@@ -68,6 +73,9 @@ type PeerUpdate struct {
 	PersistentKeepalive **int  // pointer-to-pointer: nil=skip, *nil=set NULL, **val=set value
 	ClientDNS          *string
 	ClientMTU          **int  // pointer-to-pointer: nil=skip, *nil=set NULL, **val=set value
+	ClientAddress      *string
+	PresharedKey       *string // nil=skip, ""=clear, "base64..."=set
+	ClientAllowedIPs   *string // nil=skip, ""=clear, "cidr,cidr"=set
 }
 
 // ListPeers returns all peers ordered by created_at.
@@ -126,10 +134,11 @@ func (db *DB) GetPeerByID(id int64) (*Peer, error) {
 // CreatePeer inserts a new peer and returns the generated ID.
 func (db *DB) CreatePeer(p *Peer) (int64, error) {
 	result, err := db.conn.Exec(`
-		INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu, client_address, preshared_key, client_allowed_ips)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes,
-		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU)
+		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU, p.ClientAddress,
+		p.PresharedKey, p.ClientAllowedIPs)
 	if err != nil {
 		return 0, fmt.Errorf("creating peer: %w", err)
 	}
@@ -190,7 +199,18 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 		sets = append(sets, "client_mtu = ?")
 		args = append(args, *u.ClientMTU) // *int or nil → NULL
 	}
-
+	if u.ClientAddress != nil {
+		sets = append(sets, "client_address = ?")
+		args = append(args, *u.ClientAddress)
+	}
+	if u.PresharedKey != nil {
+		sets = append(sets, "preshared_key = ?")
+		args = append(args, *u.PresharedKey)
+	}
+	if u.ClientAllowedIPs != nil {
+		sets = append(sets, "client_allowed_ips = ?")
+		args = append(args, *u.ClientAllowedIPs)
+	}
 	if len(sets) == 0 {
 		return nil // nothing to update
 	}
@@ -211,12 +231,13 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 
 // UpsertPeerFromReconcile inserts a peer if not already present (INSERT OR IGNORE).
 // Used by the reconciler to track peers discovered in the kernel.
-// endpoint and persistentKeepalive preserve the values observed in the kernel (Task 8b).
-func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered, enabled bool, endpoint string, persistentKeepalive *int) error {
+// lastSeenEndpoint stores the runtime endpoint observed in kernel (informational only).
+// persistentKeepalive preserves the value observed in the kernel.
+func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered, enabled bool, lastSeenEndpoint string, persistentKeepalive *int) error {
 	_, err := db.conn.Exec(`
-		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered, enabled, endpoint, persistent_keepalive)
+		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered, enabled, last_seen_endpoint, persistent_keepalive)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, pubKey, friendlyName, autoDiscovered, enabled, endpoint, persistentKeepalive)
+	`, pubKey, friendlyName, autoDiscovered, enabled, lastSeenEndpoint, persistentKeepalive)
 	if err != nil {
 		return fmt.Errorf("upserting peer from reconcile: %w", err)
 	}
@@ -250,10 +271,11 @@ func (db *DB) CreatePeersBatch(peers []*Peer) ([]int64, error) {
 	ids := make([]int64, 0, len(peers))
 	for _, p := range peers {
 		result, err := tx.Exec(`
-			INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu, client_address, preshared_key, client_allowed_ips)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes,
-			p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU)
+			p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU, p.ClientAddress,
+			p.PresharedKey, p.ClientAllowedIPs)
 		if err != nil {
 			return nil, fmt.Errorf("inserting peer %s: %w", p.PublicKey, err)
 		}
@@ -311,5 +333,63 @@ func (db *DB) UpdatePeerPublicKey(oldPubKey, newPubKey string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// IsClientAddressTaken checks if a client_address is already assigned to another peer.
+// excludePubKey is excluded from the check (used for updates — the peer itself shouldn't conflict).
+func (db *DB) IsClientAddressTaken(address string, excludePubKey string) (bool, error) {
+	if address == "" {
+		return false, nil
+	}
+	var count int
+	err := db.conn.QueryRow(
+		"SELECT COUNT(*) FROM peers WHERE client_address = ? AND public_key != ?",
+		address, excludePubKey).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("checking client_address uniqueness: %w", err)
+	}
+	return count > 0, nil
+}
+
+// UpdateLastSeenEndpoints batch-updates last_seen_endpoint for multiple peers in a single transaction.
+// updates is a map of public_key → new last_seen_endpoint value.
+// Only changed values should be passed (delta-only).
+func (db *DB) UpdateLastSeenEndpoints(updates map[string]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning last_seen_endpoint batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare("UPDATE peers SET last_seen_endpoint = ? WHERE public_key = ?")
+	if err != nil {
+		return fmt.Errorf("preparing last_seen_endpoint update: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for pubKey, endpoint := range updates {
+		if _, err := stmt.Exec(endpoint, pubKey); err != nil {
+			return fmt.Errorf("updating last_seen_endpoint for %s: %w", pubKey, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing last_seen_endpoint batch: %w", err)
+	}
+	return nil
+}
+
+// CountPeersWithEmptyClientAddress returns the number of peers with empty client_address.
+func (db *DB) CountPeersWithEmptyClientAddress() (int, error) {
+	var count int
+	err := db.conn.QueryRow("SELECT COUNT(*) FROM peers WHERE client_address = ''").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting peers with empty client_address: %w", err)
+	}
+	return count, nil
 }
 

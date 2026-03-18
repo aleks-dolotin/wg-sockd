@@ -41,6 +41,8 @@ func (m *mockWgClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	return k, k.PublicKey(), nil
 }
 
+func (m *mockWgClient) GeneratePresharedKey() (wgtypes.Key, error) { return wgtypes.GenerateKey() }
+
 func (m *mockWgClient) Close() error { return nil }
 
 var _ wireguard.WireGuardClient = (*mockWgClient)(nil)
@@ -210,16 +212,17 @@ func TestReconcileOnce_PeersInBoth_NoChanges(t *testing.T) {
 	}
 }
 
-func TestReconcileOnce_AutoApproveUnknown(t *testing.T) {
+func TestReconcileOnce_UnknownPeerStrictMode(t *testing.T) {
 	unknownKey, _ := wgtypes.GeneratePrivateKey()
 	unknownPub := unknownKey.PublicKey()
 	_, cidr, _ := net.ParseCIDR("10.0.0.99/32")
+	ep := &net.UDPAddr{IP: net.ParseIP("203.0.113.50"), Port: 41820}
 
 	mock := &mockWgClient{
 		device: &wireguard.Device{
 			Name: "wg0",
 			Peers: []wireguard.Peer{
-				{PublicKey: unknownPub, AllowedIPs: []net.IPNet{*cidr}},
+				{PublicKey: unknownPub, AllowedIPs: []net.IPNet{*cidr}, Endpoint: ep},
 			},
 		},
 	}
@@ -232,7 +235,6 @@ func TestReconcileOnce_AutoApproveUnknown(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
-	cfg.AutoApproveUnknown = true
 
 	r := New(mock, db, cfg, confwriter.NewSharedWriter())
 
@@ -241,12 +243,12 @@ func TestReconcileOnce_AutoApproveUnknown(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should NOT remove from kernel.
-	if len(mock.removedKeys) != 0 {
-		t.Errorf("auto_approve should not remove peers: got %d removals", len(mock.removedKeys))
+	// Strict mode: always removed from kernel.
+	if len(mock.removedKeys) != 1 {
+		t.Errorf("expected 1 removal, got %d", len(mock.removedKeys))
 	}
 
-	// Should insert as enabled + auto_discovered.
+	// Stored as disabled, auto_discovered, with last_seen_endpoint populated.
 	dbPeer, err := db.GetPeerByPubKey(unknownPub.String())
 	if err != nil {
 		t.Fatalf("peer should be in DB: %v", err)
@@ -254,8 +256,15 @@ func TestReconcileOnce_AutoApproveUnknown(t *testing.T) {
 	if !dbPeer.AutoDiscovered {
 		t.Error("should be auto_discovered")
 	}
-	// UpsertPeerFromReconcile sets Enabled=true by default (INSERT OR IGNORE uses default).
-	// In auto_approve mode we do NOT disable the peer.
+	if dbPeer.Enabled {
+		t.Error("should be disabled pending approval")
+	}
+	if dbPeer.LastSeenEndpoint != "203.0.113.50:41820" {
+		t.Errorf("LastSeenEndpoint: got %q, want %q", dbPeer.LastSeenEndpoint, "203.0.113.50:41820")
+	}
+	if dbPeer.Endpoint != "" {
+		t.Errorf("configured Endpoint should be empty, got %q", dbPeer.Endpoint)
+	}
 }
 
 func TestRunLoop_StopsOnCancel(t *testing.T) {

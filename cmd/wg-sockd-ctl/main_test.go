@@ -263,7 +263,7 @@ func TestPeersApprove(t *testing.T) {
 
 	client := newUnixClient(sock)
 
-	if err := peersApprove(client, []string{"abc1"}); err != nil {
+	if err := peersApprove(client, []string{"--client-address", "10.0.0.5/32", "abc1"}); err != nil {
 		t.Fatalf("peersApprove: %v", err)
 	}
 

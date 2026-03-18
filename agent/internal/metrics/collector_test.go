@@ -32,7 +32,8 @@ func (m *mockWgClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	k, _ := wgtypes.GeneratePrivateKey()
 	return k, k.PublicKey(), nil
 }
-func (m *mockWgClient) Close() error { return nil }
+func (m *mockWgClient) GeneratePresharedKey() (wgtypes.Key, error) { return wgtypes.GenerateKey() }
+func (m *mockWgClient) Close() error                               { return nil }
 
 func TestCollector_BasicMetrics(t *testing.T) {
 	// Create in-memory DB.

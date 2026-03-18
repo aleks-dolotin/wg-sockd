@@ -19,9 +19,12 @@ export default function PeerEditForm({ peer }) {
   const [profile, setProfile] = useState(peer?.profile || '')
   const [endpoint, setEndpoint] = useState(peer?.configured_endpoint || '')
   const [endpointError, setEndpointError] = useState('')
+  const [clientAddress, setClientAddress] = useState(peer?.client_address || '')
+  const [clientAddressError, setClientAddressError] = useState('')
   const [pka, setPka] = useState(peer?.persistent_keepalive != null ? String(peer.persistent_keepalive) : '')
   const [clientDNS, setClientDNS] = useState(peer?.client_dns || '')
   const [clientMTU, setClientMTU] = useState(peer?.client_mtu != null ? String(peer.client_mtu) : '')
+  const [clientAllowedIPs, setClientAllowedIPs] = useState(peer?.client_allowed_ips || '')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   // Re-sync form when peer data changes (e.g., after mutation invalidation)
@@ -35,9 +38,12 @@ export default function PeerEditForm({ peer }) {
     setProfile(peer?.profile || '')
     setEndpoint(peer?.configured_endpoint || '')
     setEndpointError('')
+    setClientAddress(peer?.client_address || '')
+    setClientAddressError('')
     setPka(peer?.persistent_keepalive != null ? String(peer.persistent_keepalive) : '')
     setClientDNS(peer?.client_dns || '')
     setClientMTU(peer?.client_mtu != null ? String(peer.client_mtu) : '')
+    setClientAllowedIPs(peer?.client_allowed_ips || '')
   }
 
   const saveMut = useMutation({
@@ -61,8 +67,20 @@ export default function PeerEditForm({ peer }) {
     return true
   }
 
+  const validateClientAddress = (value) => {
+    if (!value) { setClientAddressError(''); return true }
+    const cidrRegex = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/
+    if (!cidrRegex.test(value)) {
+      setClientAddressError('Must be CIDR format (e.g. 10.0.0.2/32)')
+      return false
+    }
+    setClientAddressError('')
+    return true
+  }
+
   const handleSave = () => {
     if (!validateEndpoint(endpoint)) return
+    if (!validateClientAddress(clientAddress)) return
 
     const update = {}
     if (name !== (peer.friendly_name || '')) update.friendly_name = name
@@ -83,6 +101,7 @@ export default function PeerEditForm({ peer }) {
     }
 
     if (endpoint !== (peer.configured_endpoint || '')) update.configured_endpoint = endpoint
+    if (clientAddress !== (peer.client_address || '')) update.client_address = clientAddress
     if (pka !== '' && pka !== (peer.persistent_keepalive != null ? String(peer.persistent_keepalive) : '')) {
       update.persistent_keepalive = parseInt(pka, 10)
     } else if (pka === '' && peer.persistent_keepalive != null) {
@@ -93,6 +112,9 @@ export default function PeerEditForm({ peer }) {
       update.client_mtu = parseInt(clientMTU, 10)
     } else if (clientMTU === '' && peer.client_mtu != null) {
       update.client_mtu = null
+    }
+    if (clientAllowedIPs !== (peer.client_allowed_ips || '')) {
+      update.client_allowed_ips = clientAllowedIPs
     }
 
     if (Object.keys(update).length === 0) {
@@ -149,6 +171,37 @@ export default function PeerEditForm({ peer }) {
         </div>
 
         <div>
+          <label className="text-sm font-medium text-muted-foreground" htmlFor="clientAddress">Client Address</label>
+          <Input
+            id="clientAddress"
+            value={clientAddress}
+            onChange={(e) => setClientAddress(e.target.value)}
+            onBlur={() => validateClientAddress(clientAddress)}
+            placeholder="e.g. 10.0.0.2/32"
+            className={`mt-1 ${clientAddressError ? 'border-red-500' : ''}`}
+          />
+          {clientAddressError && <p className="text-xs text-red-500 mt-1">{clientAddressError}</p>}
+          <p className="text-xs text-muted-foreground mt-1">Client VPN IP used as [Interface] Address in download config</p>
+        </div>
+
+        {peer?.last_seen_endpoint && (
+          <div>
+            <label className="text-sm font-medium text-muted-foreground">Last Seen Endpoint</label>
+            <div className="mt-1 flex items-center gap-2">
+              <Input value={peer.last_seen_endpoint} readOnly className="bg-muted" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { navigator.clipboard.writeText(peer.last_seen_endpoint); toast.success('Copied') }}
+              >
+                Copy
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Runtime endpoint from kernel (read-only)</p>
+          </div>
+        )}
+
+        <div>
           <label className="text-sm font-medium text-muted-foreground" htmlFor="endpoint">Endpoint</label>
           <Input
             id="endpoint"
@@ -177,6 +230,32 @@ export default function PeerEditForm({ peer }) {
 
         {showAdvanced && (
           <div className="space-y-4 pl-2 border-l-2 border-muted">
+            {/* PSK status — read-only, never show value */}
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">PresharedKey</label>
+              <div className="mt-1 flex items-center gap-2">
+                {peer?.has_preshared_key
+                  ? <span className="text-sm text-green-600 dark:text-green-400 font-medium">✓ Set</span>
+                  : <span className="text-sm text-muted-foreground">Not set</span>
+                }
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Use rotate-keys to generate a new PSK</p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-muted-foreground" htmlFor="clientAllowedIPs">Client AllowedIPs</label>
+              <Input
+                id="clientAllowedIPs"
+                value={clientAllowedIPs}
+                onChange={(e) => setClientAllowedIPs(e.target.value)}
+                placeholder={peer?.resolved_client_allowed_ips
+                  ? `inherited: ${peer.resolved_client_allowed_ips} (${peer.resolved_client_allowed_ips_source})`
+                  : '0.0.0.0/0, ::/0'}
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">CIDRs routed through VPN on client side (empty = inherit, full-tunnel fallback)</p>
+            </div>
+
             <div>
               <label className="text-sm font-medium text-muted-foreground" htmlFor="pka">PersistentKeepalive</label>
               <Input

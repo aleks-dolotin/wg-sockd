@@ -32,6 +32,10 @@ export default function PeerNewPage() {
   const [pka, setPka] = useState('')
   const [clientDNS, setClientDNS] = useState('')
   const [clientMTU, setClientMTU] = useState('')
+  const [clientAddress, setClientAddress] = useState('')
+  const [clientAddressError, setClientAddressError] = useState('')
+  const [clientAllowedIPs, setClientAllowedIPs] = useState('')
+  const [generatePSK, setGeneratePSK] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const createMut = useMutation({
@@ -44,9 +48,13 @@ export default function PeerNewPage() {
   const hasProfiles = profiles && profiles.length > 0
   const isCustom = profile === '__custom__' || !hasProfiles
 
+  // Auto-enable PSK generation when profile requires it
+  const profileRequiresPSK = selectedProfile?.use_preshared_key ?? false
+
   function handleSubmit(e) {
     e.preventDefault()
     setCidrError('')
+    setClientAddressError('')
     // Validate endpoint.
     if (endpoint) {
       const parts = endpoint.split(':')
@@ -55,6 +63,14 @@ export default function PeerNewPage() {
         return
       }
       setEndpointError('')
+    }
+    // Validate client_address CIDR.
+    if (clientAddress) {
+      const cidrRegex = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/
+      if (!cidrRegex.test(clientAddress)) {
+        setClientAddressError('Must be CIDR format (e.g. 10.0.0.2/32)')
+        return
+      }
     }
     const body = { friendly_name: name, notes: notes || undefined }
     if (isCustom) {
@@ -68,10 +84,13 @@ export default function PeerNewPage() {
     } else if (profile) {
       body.profile = profile
     }
+    if (clientAddress) body.client_address = clientAddress
     if (endpoint) body.configured_endpoint = endpoint
     if (pka !== '') body.persistent_keepalive = parseInt(pka, 10)
     if (clientDNS) body.client_dns = clientDNS
     if (clientMTU !== '') body.client_mtu = parseInt(clientMTU, 10)
+    if (clientAllowedIPs) body.client_allowed_ips = clientAllowedIPs
+    if (generatePSK || profileRequiresPSK) body.preshared_key = 'auto'
     createMut.mutate(body)
   }
 
@@ -106,6 +125,13 @@ export default function PeerNewPage() {
             <Input value={customIPs} onChange={e => setCustomIPs(e.target.value)} placeholder="10.0.0.0/24, 192.168.1.0/24" /></div>)}
           <div><label className="text-sm font-medium">Notes</label>
             <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" /></div>
+          <div><label className="text-sm font-medium">Client Address</label>
+            <Input value={clientAddress} onChange={e => setClientAddress(e.target.value)}
+              onBlur={() => { if (clientAddress && !/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(clientAddress)) setClientAddressError('Must be CIDR format (e.g. 10.0.0.2/32)'); else setClientAddressError('') }}
+              placeholder="e.g. 10.0.0.2/32"
+              className={clientAddressError ? 'border-red-500' : ''} />
+            {clientAddressError && <p className="text-xs text-red-500 mt-1">{clientAddressError}</p>}
+            <p className="text-xs text-muted-foreground mt-1">Client VPN IP for [Interface] Address in download config</p></div>
           <div><label className="text-sm font-medium">Endpoint</label>
             <Input value={endpoint} onChange={e => setEndpoint(e.target.value)}
               onBlur={() => { if (endpoint && !endpoint.includes(':')) setEndpointError('Must be host:port format'); else setEndpointError('') }}
@@ -119,6 +145,25 @@ export default function PeerNewPage() {
           </button>
           {showAdvanced && (
             <div className="space-y-3 pl-2 border-l-2 border-muted">
+              <div className="flex items-center gap-2">
+                <input
+                  id="generatePSK"
+                  type="checkbox"
+                  checked={generatePSK || profileRequiresPSK}
+                  onChange={(e) => setGeneratePSK(e.target.checked)}
+                  disabled={profileRequiresPSK}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <label htmlFor="generatePSK" className="text-sm font-medium">
+                  Generate PresharedKey
+                  {profileRequiresPSK && <span className="ml-1 text-xs text-muted-foreground">(required by profile)</span>}
+                </label>
+              </div>
+              <div><label className="text-sm font-medium">Client AllowedIPs</label>
+                <Input value={clientAllowedIPs} onChange={e => setClientAllowedIPs(e.target.value)}
+                  placeholder="e.g. 10.0.0.0/8, 172.16.0.0/12 (empty = full-tunnel 0.0.0.0/0)" />
+                <p className="text-xs text-muted-foreground mt-1">CIDRs routed through VPN on client side</p>
+              </div>
               <div><label className="text-sm font-medium">PersistentKeepalive</label>
                 <Input type="number" min="0" max="65535" value={pka} onChange={e => setPka(e.target.value)}
                   placeholder="0 = off, empty = inherit" /></div>

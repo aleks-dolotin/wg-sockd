@@ -55,14 +55,18 @@ type CreatePeerRequest struct {
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	ClientAddress       string   `json:"client_address,omitempty"`
+	PresharedKey        string   `json:"preshared_key,omitempty"` // "auto" or base64
+	ClientAllowedIPs    string   `json:"client_allowed_ips,omitempty"`
 }
 
 type UpdatePeerRequest struct {
-	FriendlyName *string  `json:"friendly_name,omitempty"`
-	AllowedIPs   []string `json:"allowed_ips,omitempty"`
-	Profile      **string `json:"profile,omitempty"`
-	Enabled      *bool    `json:"enabled,omitempty"`
-	Notes        *string  `json:"notes,omitempty"`
+	FriendlyName     *string  `json:"friendly_name,omitempty"`
+	AllowedIPs       []string `json:"allowed_ips,omitempty"`
+	Profile          **string `json:"profile,omitempty"`
+	Enabled          *bool    `json:"enabled,omitempty"`
+	Notes            *string  `json:"notes,omitempty"`
+	ClientAllowedIPs *string  `json:"client_allowed_ips,omitempty"`
 }
 
 type PeerConfResponse struct {
@@ -78,6 +82,8 @@ type ProfileResponse struct {
 	Description        string   `json:"description,omitempty"`
 	IsDefault          bool     `json:"is_default"`
 	PeerCount          int      `json:"peer_count"`
+	ClientAllowedIPs   string   `json:"client_allowed_ips,omitempty"`
+	UsePresharedKey    bool     `json:"use_preshared_key"`
 }
 
 type CreateProfileRequest struct {
@@ -89,6 +95,8 @@ type CreateProfileRequest struct {
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	ClientAllowedIPs    string   `json:"client_allowed_ips,omitempty"`
+	UsePresharedKey     bool     `json:"use_preshared_key"`
 }
 
 type UpdateProfileRequest struct {
@@ -418,6 +426,9 @@ func peersAdd(client *http.Client, args []string) error {
 	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive interval in seconds (0=off)")
 	clientDNS := fs.String("client-dns", "", "client DNS servers (comma-separated)")
 	clientMTU := fs.Int("client-mtu", -1, "client MTU value")
+	clientAddress := fs.String("client-address", "", "client VPN address (CIDR, e.g. 10.0.0.2/32)")
+	presharedKey := fs.String("preshared-key", "", `preshared key: "auto" to generate, base64 for explicit, omit for none`)
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for split-tunnel (empty = full-tunnel)")
 	_ = fs.Parse(args)
 
 	if *name == "" {
@@ -441,6 +452,15 @@ func peersAdd(client *http.Client, args []string) error {
 	}
 	if *clientMTU >= 0 {
 		req.ClientMTU = clientMTU
+	}
+	if *clientAddress != "" {
+		req.ClientAddress = *clientAddress
+	}
+	if *presharedKey != "" {
+		req.PresharedKey = *presharedKey
+	}
+	if *clientAllowedIPs != "" {
+		req.ClientAllowedIPs = *clientAllowedIPs
 	}
 
 	body, err := json.Marshal(req)
@@ -486,6 +506,8 @@ func peersUpdate(client *http.Client, args []string) error {
 	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive (0=off, -1=skip)")
 	clientDNS := fs.String("client-dns", "", "client DNS (empty to clear)")
 	clientMTU := fs.Int("client-mtu", -1, "client MTU (0=auto, -1=skip)")
+	clientAddress := fs.String("client-address", "", "client VPN address (CIDR)")
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for split-tunnel (empty = full-tunnel fallback)")
 	_ = fs.Parse(args)
 
 	if *id == 0 {
@@ -530,9 +552,18 @@ func peersUpdate(client *http.Client, args []string) error {
 	if *clientMTU >= 0 {
 		update["client_mtu"] = *clientMTU
 	}
+	// Check if client-address flag was explicitly set.
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "client-address" {
+			update["client_address"] = *clientAddress
+		}
+		if f.Name == "client-allowed-ips" {
+			update["client_allowed_ips"] = *clientAllowedIPs
+		}
+	})
 
 	if len(update) == 0 {
-		return fmt.Errorf("no fields to update — specify at least one of --name, --profile, --allowed-ips, --notes, --enable, --disable")
+		return fmt.Errorf("no fields to update — specify at least one of --name, --profile, --allowed-ips, --notes, --enable, --disable, --client-address, --client-allowed-ips")
 	}
 
 	body, err := json.Marshal(update)
@@ -599,13 +630,29 @@ func peersDelete(client *http.Client, args []string) error {
 }
 
 func peersApprove(client *http.Client, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: peers approve <pubkey_prefix>")
+	fs := flag.NewFlagSet("peers approve", flag.ExitOnError)
+	clientAddress := fs.String("client-address", "", "client VPN address (CIDR, required)")
+	name := fs.String("name", "", "friendly name for the peer")
+	profile := fs.String("profile", "", "profile name")
+	allowedIPs := fs.String("allowed-ips", "", "comma-separated allowed IPs")
+	endpoint := fs.String("endpoint", "", "configured endpoint (host:port)")
+	clientDNS := fs.String("client-dns", "", "client DNS servers")
+	clientMTU := fs.Int("client-mtu", -1, "client MTU value")
+	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive (0=off)")
+	_ = fs.Parse(args)
+
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		return fmt.Errorf("usage: peers approve [flags] <pubkey_prefix>")
 	}
-	prefix := args[0]
+	prefix := remaining[0]
 
 	if len(prefix) < 4 {
 		return fmt.Errorf("public key prefix must be at least 4 characters (got %d)", len(prefix))
+	}
+
+	if *clientAddress == "" {
+		return fmt.Errorf("--client-address is required for approve")
 	}
 
 	resp, err := doRequest(client, http.MethodGet, "/api/peers", nil)
@@ -642,7 +689,39 @@ func peersApprove(client *http.Client, args []string) error {
 	}
 
 	peer := matches[0]
-	approveResp, err := doRequest(client, http.MethodPost, fmt.Sprintf("/api/peers/%d/approve", peer.ID), nil)
+
+	// Build approve request body.
+	approveReq := map[string]interface{}{
+		"client_address": *clientAddress,
+	}
+	if *name != "" {
+		approveReq["friendly_name"] = *name
+	}
+	if *profile != "" {
+		approveReq["profile"] = *profile
+	}
+	if *allowedIPs != "" {
+		approveReq["allowed_ips"] = strings.Split(*allowedIPs, ",")
+	}
+	if *endpoint != "" {
+		approveReq["configured_endpoint"] = *endpoint
+	}
+	if *clientDNS != "" {
+		approveReq["client_dns"] = *clientDNS
+	}
+	if *clientMTU >= 0 {
+		approveReq["client_mtu"] = *clientMTU
+	}
+	if *pka >= 0 {
+		approveReq["persistent_keepalive"] = *pka
+	}
+
+	body, err := json.Marshal(approveReq)
+	if err != nil {
+		return fmt.Errorf("marshaling request: %w", err)
+	}
+
+	approveResp, err := doRequest(client, http.MethodPost, fmt.Sprintf("/api/peers/%d/approve", peer.ID), strings.NewReader(string(body)))
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -653,6 +732,10 @@ func peersApprove(client *http.Client, args []string) error {
 	}
 
 	if jsonOutput {
+		var result PeerResponse
+		if err := json.NewDecoder(approveResp.Body).Decode(&result); err == nil {
+			return writeJSON(result)
+		}
 		return writeJSON(peer)
 	}
 
@@ -660,7 +743,7 @@ func peersApprove(client *http.Client, args []string) error {
 	if len(keyDisplay) > 12 {
 		keyDisplay = keyDisplay[:12] + "…"
 	}
-	fmt.Printf("✅ Peer approved: %s (%s)\n", peer.FriendlyName, keyDisplay)
+	fmt.Printf("✅ Peer approved: %s (%s) — client_address=%s\n", peer.FriendlyName, keyDisplay, *clientAddress)
 	return nil
 }
 
@@ -780,6 +863,8 @@ func profilesCreate(client *http.Client, args []string) error {
 	pka := fs.Int("persistent-keepalive", -1, "default persistent keepalive (0=off)")
 	clientDNS := fs.String("client-dns", "", "default client DNS")
 	clientMTU := fs.Int("client-mtu", -1, "default client MTU")
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "default client AllowedIPs for split-tunnel (empty = full-tunnel)")
+	usePresharedKey := fs.Bool("use-preshared-key", false, "auto-generate PSK for new peers in this profile")
 	_ = fs.Parse(args)
 
 	if *name == "" || *allowedIPs == "" {
@@ -787,9 +872,10 @@ func profilesCreate(client *http.Client, args []string) error {
 	}
 
 	req := CreateProfileRequest{
-		Name:        *name,
-		AllowedIPs:  splitTrim(*allowedIPs),
-		Description: *description,
+		Name:            *name,
+		AllowedIPs:      splitTrim(*allowedIPs),
+		Description:     *description,
+		UsePresharedKey: *usePresharedKey,
 	}
 	if *excludeIPs != "" {
 		req.ExcludeIPs = splitTrim(*excludeIPs)
@@ -805,6 +891,9 @@ func profilesCreate(client *http.Client, args []string) error {
 	}
 	if *clientMTU >= 0 {
 		req.ClientMTU = clientMTU
+	}
+	if *clientAllowedIPs != "" {
+		req.ClientAllowedIPs = *clientAllowedIPs
 	}
 
 	body, err := json.Marshal(req)
@@ -850,6 +939,8 @@ func profilesUpdate(client *http.Client, args []string) error {
 	pka := fs.Int("persistent-keepalive", -1, "default persistent keepalive (0=off)")
 	clientDNS := fs.String("client-dns", "", "default client DNS")
 	clientMTU := fs.Int("client-mtu", -1, "default client MTU")
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for split-tunnel")
+	usePresharedKey := fs.String("use-preshared-key", "", "auto-generate PSK for new peers: true/false")
 	_ = fs.Parse(args)
 
 	if *name == "" {
@@ -873,6 +964,12 @@ func profilesUpdate(client *http.Client, args []string) error {
 		}
 		if f.Name == "client-dns" {
 			update["client_dns"] = *clientDNS
+		}
+		if f.Name == "client-allowed-ips" {
+			update["client_allowed_ips"] = *clientAllowedIPs
+		}
+		if f.Name == "use-preshared-key" {
+			update["use_preshared_key"] = *usePresharedKey == "true" || *usePresharedKey == "1"
 		}
 	})
 	if *pka >= 0 {

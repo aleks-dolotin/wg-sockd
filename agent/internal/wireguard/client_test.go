@@ -10,11 +10,12 @@ import (
 
 // MockClient implements WireGuardClient for testing.
 type MockClient struct {
-	GetDeviceFunc      func(name string) (*Device, error)
-	ConfigurePeersFunc func(name string, peers []PeerConfig) error
-	RemovePeerFunc     func(name string, pubKey wgtypes.Key) error
-	GenerateKeyPairFunc func() (wgtypes.Key, wgtypes.Key, error)
-	CloseFunc          func() error
+	GetDeviceFunc           func(name string) (*Device, error)
+	ConfigurePeersFunc      func(name string, peers []PeerConfig) error
+	RemovePeerFunc          func(name string, pubKey wgtypes.Key) error
+	GenerateKeyPairFunc     func() (wgtypes.Key, wgtypes.Key, error)
+	GeneratePresharedKeyFunc func() (wgtypes.Key, error)
+	CloseFunc               func() error
 
 	// Recorded calls for assertions
 	ConfigurePeersCalls []ConfigurePeersCall
@@ -62,6 +63,13 @@ func (m *MockClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	}
 	priv, _ := wgtypes.GeneratePrivateKey()
 	return priv, priv.PublicKey(), nil
+}
+
+func (m *MockClient) GeneratePresharedKey() (wgtypes.Key, error) {
+	if m.GeneratePresharedKeyFunc != nil {
+		return m.GeneratePresharedKeyFunc()
+	}
+	return wgtypes.GenerateKey()
 }
 
 func (m *MockClient) Close() error {

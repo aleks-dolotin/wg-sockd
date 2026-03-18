@@ -1,5 +1,58 @@
 # Upgrading wg-sockd
 
+## v0.12.x → v0.13.0 (Client Config, PSK, Split-Tunnel)
+
+### Breaking Change: `auto_approve_unknown` removed
+
+The `auto_approve_unknown` config field has been removed. If your `config.yaml` contains it,
+the agent will log a warning and ignore the field — it will **not** fail to start.
+
+**Action required:** Remove the field from your `config.yaml`:
+
+```yaml
+# Remove this line:
+auto_approve_unknown: false
+```
+
+All unknown peers discovered in the kernel are now always removed and inserted as
+disabled pending admin review via the Approve flow.
+
+### New: `client_address` field
+
+A new required field `client_address` (CIDR format, e.g. `10.0.0.2/32`) is used as
+`[Interface] Address` in client download configs. Existing peers without this field
+continue to work with the `/32` fallback for legacy single-IP AllowedIPs.
+
+**Recommended:** Set `client_address` on existing peers for correct client config generation:
+
+```bash
+wg-sockd-ctl peers update --id 1 --client-address 10.0.0.2/32
+```
+
+At startup, the agent logs a warning for each peer with empty `client_address`.
+
+### New: SQLite migrations 005 and 006
+
+Migrations run automatically on startup. Both are backward-compatible (empty-string
+defaults for all new columns). No manual action required.
+
+### New: Split-Tunnel `client_allowed_ips`
+
+Add global default in `config.yaml` for split-tunnel client configs (optional):
+
+```yaml
+peer_defaults:
+  client_allowed_ips: "10.0.0.0/8, 172.16.0.0/12"  # empty = full-tunnel (default)
+```
+
+### New environment variables
+
+| Variable | Description |
+|---|---|
+| `WG_SOCKD_CLIENT_ALLOWED_IPS` | Global default client AllowedIPs (split-tunnel) |
+
+---
+
 ## v0.6.x → v0.7.0 (HTTP Authentication)
 
 ### What Changed

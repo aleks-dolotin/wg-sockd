@@ -98,6 +98,10 @@ func (d *DevClient) GenerateKeyPair() (wgtypes.Key, wgtypes.Key, error) {
 	return priv, priv.PublicKey(), nil
 }
 
+func (d *DevClient) GeneratePresharedKey() (wgtypes.Key, error) {
+	return wgtypes.GenerateKey()
+}
+
 func (d *DevClient) Close() error {
 	return nil
 }

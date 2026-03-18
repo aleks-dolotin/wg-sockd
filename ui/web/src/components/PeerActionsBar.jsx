@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updatePeer, deletePeer, rotatePeerKeys, approvePeer } from '@/api/client'
+import { updatePeer, deletePeer, rotatePeerKeys } from '@/api/client'
 import { useConnection } from '@/components/ConnectionContext'
+import ApproveDialog from '@/components/ApproveDialog'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -16,6 +17,7 @@ export default function PeerActionsBar({ peer }) {
   const [rotateDialogOpen, setRotateDialogOpen] = useState(false)
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false)
   const [rotateResult, setRotateResult] = useState(null)
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['peers'] })
@@ -49,18 +51,12 @@ export default function PeerActionsBar({ peer }) {
     onError: (err) => { toast.error(err.message); setRotateConfirmOpen(false) },
   })
 
-  const approveMut = useMutation({
-    mutationFn: () => approvePeer(peer.id),
-    onSuccess: () => { invalidate(); toast.success('Peer approved') },
-    onError: (err) => toast.error(err.message),
-  })
-
   return (
     <>
       <div className="flex flex-wrap gap-2">
         {peer.auto_discovered && !peer.enabled && (
-          <Button onClick={() => approveMut.mutate()} disabled={!isConnected || approveMut.isPending}>
-            {approveMut.isPending ? 'Approving…' : 'Approve'}
+          <Button onClick={() => setApproveDialogOpen(true)} disabled={!isConnected}>
+            Approve
           </Button>
         )}
         <Button
@@ -149,6 +145,13 @@ export default function PeerActionsBar({ peer }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Approve onboarding dialog */}
+      <ApproveDialog
+        peer={peer}
+        open={approveDialogOpen}
+        onClose={() => setApproveDialogOpen(false)}
+      />
     </>
   )
 }

@@ -34,7 +34,7 @@ export default function ProfilesPage() {
   const { data: profiles, isLoading, error } = useProfiles()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(null)
-  const [formData, setFormData] = useState({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '' })
+  const [formData, setFormData] = useState({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '', client_allowed_ips: '', use_preshared_key: false })
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteError, setDeleteError] = useState(null)
 
@@ -49,6 +49,8 @@ export default function ProfilesPage() {
       else delete payload.persistent_keepalive
       if (data.client_mtu !== '') payload.client_mtu = parseInt(data.client_mtu, 10)
       else delete payload.client_mtu
+      // client_allowed_ips: empty string is valid (clears the value)
+      // use_preshared_key: boolean, always included
       return editing === 'new' ? createProfile(payload) : updateProfile(editing.name, payload)
     },
     onSuccess: () => {
@@ -71,7 +73,7 @@ export default function ProfilesPage() {
   })
 
   function openNew() {
-    setFormData({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '' })
+    setFormData({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '', client_allowed_ips: '', use_preshared_key: false })
     setEditing('new')
   }
 
@@ -85,6 +87,8 @@ export default function ProfilesPage() {
       persistent_keepalive: p.persistent_keepalive != null ? String(p.persistent_keepalive) : '',
       client_dns: p.client_dns || '',
       client_mtu: p.client_mtu != null ? String(p.client_mtu) : '',
+      client_allowed_ips: p.client_allowed_ips || '',
+      use_preshared_key: p.use_preshared_key ?? false,
     })
     setEditing(p)
   }
@@ -170,6 +174,23 @@ export default function ProfilesPage() {
             <div><label className="text-sm font-medium">Default Client MTU</label>
               <Input type="number" min="0" max="9000" value={formData.client_mtu} onChange={e => setFormData({ ...formData, client_mtu: e.target.value })}
                 placeholder="empty = inherit from global" /></div>
+            <div><label className="text-sm font-medium">Client AllowedIPs</label>
+              <Input value={formData.client_allowed_ips} onChange={e => setFormData({ ...formData, client_allowed_ips: e.target.value })}
+                placeholder="e.g. 10.0.0.0/8 (empty = full-tunnel 0.0.0.0/0, ::/0)" />
+              <p className="text-xs text-muted-foreground mt-1">Split-tunnel: CIDRs routed through VPN for peers in this profile</p></div>
+            <div className="flex items-center gap-2">
+              <input
+                id="usePresharedKey"
+                type="checkbox"
+                checked={formData.use_preshared_key}
+                onChange={e => setFormData({ ...formData, use_preshared_key: e.target.checked })}
+                className="h-4 w-4 rounded border-input"
+              />
+              <label htmlFor="usePresharedKey" className="text-sm font-medium">
+                Use PresharedKey
+              </label>
+              <span className="text-xs text-muted-foreground">(auto-generate PSK for new peers)</span>
+            </div>
             {saveMut.error && <Alert variant="destructive"><AlertDescription>{saveMut.error.message}</AlertDescription></Alert>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>

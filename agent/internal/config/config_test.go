@@ -26,9 +26,6 @@ func TestDefaults(t *testing.T) {
 	if cfg.ListenAddr != "" {
 		t.Errorf("ListenAddr: got %q, want %q", cfg.ListenAddr, "")
 	}
-	if cfg.AutoApproveUnknown != false {
-		t.Errorf("AutoApproveUnknown: got %v, want false", cfg.AutoApproveUnknown)
-	}
 	if cfg.PeerLimit != 250 {
 		t.Errorf("PeerLimit: got %d, want 250", cfg.PeerLimit)
 	}
@@ -57,7 +54,6 @@ socket_path: /tmp/test.sock
 db_path: /tmp/test.db
 conf_path: /tmp/wg1.conf
 listen_addr: "127.0.0.1:8080"
-auto_approve_unknown: true
 peer_limit: 100
 reconcile_interval: 60s
 `
@@ -84,9 +80,6 @@ reconcile_interval: 60s
 	}
 	if cfg.ListenAddr != "127.0.0.1:8080" {
 		t.Errorf("ListenAddr: got %q, want %q", cfg.ListenAddr, "127.0.0.1:8080")
-	}
-	if cfg.AutoApproveUnknown != true {
-		t.Errorf("AutoApproveUnknown: got %v, want true", cfg.AutoApproveUnknown)
 	}
 	if cfg.PeerLimit != 100 {
 		t.Errorf("PeerLimit: got %d, want 100", cfg.PeerLimit)
@@ -216,7 +209,6 @@ func TestApplyFlags(t *testing.T) {
 	err := fs.Parse([]string{
 		"--interface", "wg3",
 		"--socket-path", "/tmp/override.sock",
-		"--auto-approve-unknown",
 	})
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
@@ -227,9 +219,6 @@ func TestApplyFlags(t *testing.T) {
 	}
 	if cfg.SocketPath != "/tmp/override.sock" {
 		t.Errorf("SocketPath: got %q, want %q", cfg.SocketPath, "/tmp/override.sock")
-	}
-	if cfg.AutoApproveUnknown != true {
-		t.Errorf("AutoApproveUnknown: got %v, want true", cfg.AutoApproveUnknown)
 	}
 	// Non-overridden fields keep defaults
 	if cfg.DBPath != "/var/lib/wg-sockd/wg-sockd.db" {
