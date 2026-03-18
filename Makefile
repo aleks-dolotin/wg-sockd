@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui dev lint lint-all setup-hooks
+.PHONY: build test install uninstall clean smoke docker-build test-ui build-ctl test-ctl build-full ui dev lint lint-all setup-hooks bump-version
 
 BINARY := wg-sockd
 BIN_DIR := bin
@@ -135,4 +135,33 @@ build-dev:
 	fi
 	@touch ./tmp/wg0.conf
 	./$(BIN_DIR)/$(BINARY) --config ./tmp/dev-config.yaml --dev-wg
+
+# Bump Helm chart version in Chart.yaml, docs, and README.
+# Reads current version from VERSION file and auto-increments the minor part.
+# Override: make bump-version VERSION_NEW=1.0.0
+bump-version:
+	@OLD=$$(cat VERSION); \
+	if [ -n "$(VERSION_NEW)" ]; then \
+		NEW="$(VERSION_NEW)"; \
+	else \
+		MAJOR=$$(echo $$OLD | cut -d. -f1); \
+		MINOR=$$(echo $$OLD | cut -d. -f2); \
+		PATCH=$$(echo $$OLD | cut -d. -f3); \
+		NEW="$$MAJOR.$$((MINOR + 1)).$$PATCH"; \
+	fi; \
+	echo "Bumping $$OLD → $$NEW"; \
+	echo "$$NEW" > VERSION; \
+	sed -i.bak \
+		-e "s/^version: $$OLD$$/version: $$NEW/" \
+		-e "s/^appVersion: \"$$OLD\"$$/appVersion: \"$$NEW\"/" \
+		chart/Chart.yaml && rm -f chart/Chart.yaml.bak; \
+	sed -i.bak \
+		-e "s/--version $$OLD/--version $$NEW/g" \
+		-e "s/tag: \"$$OLD\"/tag: \"$$NEW\"/g" \
+		docs/deployment-guide.md && rm -f docs/deployment-guide.md.bak; \
+	sed -i.bak \
+		-e "s/--version $$OLD/--version $$NEW/g" \
+		-e "s/tag: \"$$OLD\"/tag: \"$$NEW\"/g" \
+		README.md && rm -f README.md.bak; \
+	echo "Done. Review changes: git diff"
 
