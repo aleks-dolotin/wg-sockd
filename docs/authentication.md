@@ -17,16 +17,16 @@ When both methods are enabled, either one grants access.
 
 ```mermaid
 flowchart TD
-    R[Incoming request] --> US{Unix socket\nskip_unix_socket: true?}
-    US -->|Yes| OK[✅ Pass through]
-    US -->|No| SC{Valid session\ncookie?}
+    R[Incoming request] --> US{Unix socket and skip_unix_socket?}
+    US -->|Yes| OK[Pass through]
+    US -->|No| SC{Valid session cookie?}
     SC -->|Yes| OK
-    SC -->|No| BT{Valid Bearer\ntoken?}
+    SC -->|No| BT{Valid Bearer token?}
     BT -->|Yes| OK
-    BT -->|No| HP{Path is\n/api/health?}
+    BT -->|No| HP{Path is /api/health?}
     HP -->|Yes| OK
-    HP -->|No| CN{Accepts\ntext/html?}
-    CN -->|Yes| RD[302 → /login]
+    HP -->|No| CN{Accepts text/html?}
+    CN -->|Yes| RD[302 redirect to /login]
     CN -->|No| R401[401 JSON]
 ```
 
