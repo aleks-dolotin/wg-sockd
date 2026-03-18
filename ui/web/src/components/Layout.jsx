@@ -5,6 +5,7 @@ import UnknownPeerAlert from '@/components/UnknownPeerAlert'
 import StaleDataBanner from '@/components/StaleDataBanner'
 import { Toaster } from '@/components/ui/sonner'
 import { useDarkMode } from '@/hooks/useDarkMode'
+import { useConnection } from '@/components/ConnectionContext'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -15,6 +16,7 @@ const navItems = [
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { isDark, toggle } = useDarkMode()
+  const { version, commit } = useConnection()
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -110,6 +112,13 @@ export default function Layout() {
         <UnknownPeerAlert />
         <Outlet />
       </main>
+
+      {/* Footer */}
+      {version && version !== 'dev' && (
+        <footer className="border-t py-3 text-center text-xs text-muted-foreground">
+          wg-sockd-ui v{version}{commit && commit !== 'unknown' ? ` (${commit.slice(0, 8)})` : ''}
+        </footer>
+      )}
 
       <Toaster theme={isDark ? 'dark' : 'light'} />
     </div>

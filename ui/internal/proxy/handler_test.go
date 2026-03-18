@@ -24,7 +24,7 @@ func TestPathClean_TraversalBlocked(t *testing.T) {
 	secretFile := filepath.Join(secretDir, "secret.txt")
 	os.WriteFile(secretFile, []byte("TOP SECRET"), 0644)
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	// Attempt directory traversal.
 	traversalPaths := []string{
@@ -54,7 +54,7 @@ func TestPathClean_NormalizesDoubleDots(t *testing.T) {
 	os.MkdirAll(subDir, 0755)
 	os.WriteFile(filepath.Join(subDir, "page.html"), []byte("<html>page</html>"), 0644)
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	// path.Clean("/sub/../sub/page.html") → "/sub/page.html"
 	req := httptest.NewRequest("GET", "/sub/../sub/page.html", nil)
@@ -75,7 +75,7 @@ func TestOnlyAPIPrefixForwarded(t *testing.T) {
 	webDir := t.TempDir()
 	os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>spa</html>"), 0644)
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	tests := []struct {
 		path      string
@@ -123,7 +123,7 @@ func TestStatusEndpoint(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		h := NewHandler("/nonexistent.sock", webDir, &mockState{state: tt.state})
+		h := NewHandler("/nonexistent.sock", webDir, &mockState{state: tt.state}, VersionInfo{Version: "test", Commit: "abc123"})
 
 		req := httptest.NewRequest("GET", "/ui/status", nil)
 		w := httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestSPAFallback_ServesIndexForUnknownPaths(t *testing.T) {
 	webDir := t.TempDir()
 	os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>spa-root</html>"), 0644)
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	// Non-existent file → should get index.html (SPA routing).
 	req := httptest.NewRequest("GET", "/peers/123", nil)
@@ -170,7 +170,7 @@ func TestSPAFallback_ServesActualFiles(t *testing.T) {
 	os.MkdirAll(assetsDir, 0755)
 	os.WriteFile(filepath.Join(assetsDir, "app.js"), []byte("console.log('hello')"), 0644)
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	req := httptest.NewRequest("GET", "/assets/app.js", nil)
 	w := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestSPAFallback_ServesActualFiles(t *testing.T) {
 func TestSPAFallback_NoIndexHTML(t *testing.T) {
 	webDir := t.TempDir() // empty — no index.html
 
-	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"})
+	h := NewHandler("/nonexistent.sock", webDir, &mockState{state: "connected"}, VersionInfo{})
 
 	req := httptest.NewRequest("GET", "/anything", nil)
 	w := httptest.NewRecorder()

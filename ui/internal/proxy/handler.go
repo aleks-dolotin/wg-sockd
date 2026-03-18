@@ -20,20 +20,27 @@ type StateProvider interface {
 	State() string
 }
 
+// VersionInfo holds build-time version metadata.
+type VersionInfo struct {
+	Version   string
+	Commit    string
+	BuildDate string
+}
+
 // Handler is the top-level HTTP handler for the UI proxy.
 type Handler struct {
 	mux *http.ServeMux
 }
 
 // NewHandler builds the combined handler:
-//   - GET /ui/status      → connection state JSON
+//   - GET /ui/status      → connection state JSON + version info
 //   - /api/*               → reverse proxy to Unix socket
 //   - everything else      → static SPA with index.html fallback
-func NewHandler(socketPath, webDir string, state StateProvider) *Handler {
+func NewHandler(socketPath, webDir string, state StateProvider, ver VersionInfo) *Handler {
 	mux := http.NewServeMux()
 
 	// Status endpoint.
-	mux.HandleFunc("GET /ui/status", statusHandler(state))
+	mux.HandleFunc("GET /ui/status", statusHandler(state, ver))
 
 	// Reverse proxy for API calls.
 	mux.Handle("/api/", apiProxy(socketPath))
@@ -56,12 +63,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // --- Status endpoint ---
 
-func statusHandler(state StateProvider) http.HandlerFunc {
+func statusHandler(state StateProvider, ver VersionInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		resp := map[string]string{
 			"state": state.State(),
-		})
+		}
+		if ver.Version != "" {
+			resp["version"] = ver.Version
+		}
+		if ver.Commit != "" {
+			resp["commit"] = ver.Commit
+		}
+		if ver.BuildDate != "" {
+			resp["build_date"] = ver.BuildDate
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 

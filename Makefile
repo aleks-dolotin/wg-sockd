@@ -78,7 +78,11 @@ build-full: ui
 
 # Build UI Docker image
 docker-build:
-	docker build -t wg-sockd-ui:latest -f ui/Dockerfile ui/
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t wg-sockd-ui:latest -f ui/Dockerfile ui/
 
 # Run UI proxy tests
 test-ui:
@@ -155,6 +159,9 @@ bump-version:
 		-e "s/^version: $$OLD$$/version: $$NEW/" \
 		-e "s/^appVersion: \"$$OLD\"$$/appVersion: \"$$NEW\"/" \
 		chart/Chart.yaml && rm -f chart/Chart.yaml.bak; \
+	sed -i.bak \
+		-e "s/tag: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/tag: \"$$NEW\"/" \
+		chart/values.yaml && rm -f chart/values.yaml.bak; \
 	sed -i.bak \
 		-e "s/--version [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/--version $$NEW/g" \
 		-e "s/tag: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/tag: \"$$NEW\"/g" \

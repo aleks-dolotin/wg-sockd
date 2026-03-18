@@ -35,8 +35,12 @@ func main() {
 	disc := discovery.New(*socketPath)
 	go disc.Run(ctx)
 
-	// Build handler: /api/* → reverse proxy, /ui/status → connection status, everything else → static SPA.
-	handler := proxy.NewHandler(*socketPath, *webDir, disc)
+	// Build handler: /api/* → reverse proxy, /ui/status → connection status + version, everything else → static SPA.
+	handler := proxy.NewHandler(*socketPath, *webDir, disc, proxy.VersionInfo{
+		Version:   version,
+		Commit:    commit,
+		BuildDate: buildDate,
+	})
 
 	server := &http.Server{
 		Addr:    *listenAddr,
