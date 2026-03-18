@@ -20,8 +20,6 @@ func NewRouter(h *Handlers) *http.ServeMux {
 	mux.HandleFunc("PUT /api/peers/{id}", h.UpdatePeer)
 	mux.HandleFunc("POST /api/peers/{id}/rotate-keys", h.RotateKeys)
 	mux.HandleFunc("POST /api/peers/{id}/approve", h.ApprovePeer)
-	mux.HandleFunc("GET /api/peers/{id}/conf", h.GetPeerConf)
-	mux.HandleFunc("GET /api/peers/{id}/qr", h.GetPeerQR)
 
 	mux.HandleFunc("GET /api/profiles", h.ListProfiles)
 	mux.HandleFunc("POST /api/profiles", h.CreateProfile)

@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -299,15 +300,35 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	// Resolve client conf cascade for the response.
 	h.resolveClientConfForPeer(&resp, *dbPeer, nil)
 
-	// Return response with private key embedded in a create-specific wrapper.
+	// Build full client conf with private key (one-time — never stored).
+	dev, devErr := h.wgClient.GetDevice(h.cfg.Interface)
+	serverPubKey := ""
+	serverPort := 51820
+	if devErr == nil {
+		serverPubKey = dev.PublicKey.String()
+		serverPort = dev.ListenPort
+	}
+	conf := h.buildClientConf(dbPeer, privKey.String(), serverPubKey, serverPort)
+
+	// Generate QR code as base64 PNG (one-time — never stored).
+	qrBase64 := ""
+	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 256); qrErr == nil {
+		qrBase64 = base64.StdEncoding.EncodeToString(qrPNG)
+	}
+
+	// Return response with private key, full config and QR (one-time — never stored).
 	type CreatePeerResponse struct {
 		PeerResponse
 		PrivateKey string `json:"private_key"`
+		Config     string `json:"config"`
+		QR         string `json:"qr"`
 	}
 
 	writeJSON(w, http.StatusCreated, CreatePeerResponse{
 		PeerResponse: resp,
 		PrivateKey:   privKey.String(),
+		Config:       conf,
+		QR:           qrBase64,
 	})
 }
 
@@ -922,14 +943,22 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 
 	conf := h.buildClientConf(peer, newPrivKey.String(), serverPubKey, serverPort)
 
+	// Generate QR code as base64 PNG (one-time — never stored).
+	qrBase64 := ""
+	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 256); qrErr == nil {
+		qrBase64 = base64.StdEncoding.EncodeToString(qrPNG)
+	}
+
 	type RotateKeysResponse struct {
-		PublicKey  string `json:"public_key"`
+		PublicKey string `json:"public_key"`
 		Config    string `json:"config"`
+		QR        string `json:"qr"`
 	}
 
 	writeJSON(w, http.StatusOK, RotateKeysResponse{
 		PublicKey: newPubKey.String(),
-		Config:   conf,
+		Config:    conf,
+		QR:        qrBase64,
 	})
 }
 
@@ -1070,98 +1099,7 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GetPeerConf handles GET /api/peers/{id}/conf.
-// Returns a client WireGuard .conf file.
-func (h *Handlers) GetPeerConf(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_id", "id must be an integer")
-		return
-	}
 
-	peer, err := h.store.GetPeerByID(id)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "not_found", "peer not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
-		return
-	}
-
-	// Get server public key.
-	dev, err := h.wgClient.GetDevice(h.cfg.Interface)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "wireguard_error", err.Error())
-		return
-	}
-
-	// Note: This is a simplified version — actual client conf needs the client's private key,
-	// which we don't store (RT-3). In practice, the full conf is only available at creation time.
-	// This endpoint returns a template that the user must fill in with their private key.
-	clientAddress := peer.AllowedIPs
-	if clientAddress == "" {
-		writeError(w, http.StatusInternalServerError, "config_error",
-			"peer has no allowed_ips — cannot generate client config")
-		return
-	}
-
-	conf := h.buildClientConf(peer, "", dev.PublicKey.String(), dev.ListenPort)
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.conf", peer.FriendlyName))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(conf))
-}
-
-// GetPeerQR handles GET /api/peers/{id}/qr.
-// Returns the peer's .conf as a QR code PNG image (256x256, Medium recovery).
-func (h *Handlers) GetPeerQR(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_id", "id must be an integer")
-		return
-	}
-
-	peer, err := h.store.GetPeerByID(id)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "not_found", "peer not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
-		return
-	}
-
-	// Get server public key.
-	dev, err := h.wgClient.GetDevice(h.cfg.Interface)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "wireguard_error", err.Error())
-		return
-	}
-
-	clientAddress := peer.AllowedIPs
-	if clientAddress == "" {
-		writeError(w, http.StatusInternalServerError, "config_error",
-			"peer has no allowed_ips — cannot generate QR code")
-		return
-	}
-
-	conf := h.buildClientConf(peer, "", dev.PublicKey.String(), dev.ListenPort)
-
-	png, err := qrcode.Encode(conf, qrcode.Medium, 256)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "qr_error", err.Error())
-		return
-	}
-
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%s-qr.png", peer.FriendlyName))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(png)
-}
 
 // Health handles GET /api/health.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {

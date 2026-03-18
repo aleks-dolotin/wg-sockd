@@ -15,7 +15,7 @@ export default function PeerActionsBar({ peer }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [rotateDialogOpen, setRotateDialogOpen] = useState(false)
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false)
-  const [, setRotateResult] = useState(null)
+  const [rotateResult, setRotateResult] = useState(null)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['peers'] })
@@ -130,12 +130,19 @@ export default function PeerActionsBar({ peer }) {
             <AlertDescription>Save this configuration now — the private key will not be shown again.</AlertDescription>
           </Alert>
           <div className="flex justify-center p-4">
-            <img src={`/api/peers/${peer.id}/qr`} alt="QR Code" className="w-64 h-64" />
+            <img src={`data:image/png;base64,${rotateResult?.qr}`} alt="QR Code" className="w-64 h-64" />
           </div>
           <DialogFooter>
-            <Button variant="outline" asChild>
-              <a href={`/api/peers/${peer.id}/conf`} download={`${peer.friendly_name || 'peer'}.conf`}>Download .conf</a>
-            </Button>
+            <Button variant="outline" onClick={() => {
+              if (!rotateResult?.config) return
+              const blob = new Blob([rotateResult.config], { type: 'text/plain' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `${peer.friendly_name || 'peer'}.conf`
+              a.click()
+              URL.revokeObjectURL(url)
+            }}>Download .conf</Button>
             <Button onClick={() => { toast.success(`Keys rotated for ${peer.friendly_name || 'peer'}`); setRotateDialogOpen(false); setRotateResult(null) }}>
               Done
             </Button>

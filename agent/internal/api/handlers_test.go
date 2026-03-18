@@ -408,45 +408,6 @@ func TestDeletePeer_InvalidID(t *testing.T) {
 	}
 }
 
-func TestGetPeerConf(t *testing.T) {
-	h, db := newTestHandlers(t)
-	router := NewRouter(h)
-
-	key, _ := wgtypes.GeneratePrivateKey()
-	id, err := db.CreatePeer(&storage.Peer{
-		PublicKey:     key.PublicKey().String(),
-		FriendlyName:  "ConfPeer",
-		AllowedIPs:    "10.0.0.2/32",
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest("GET", "/api/peers/"+itoa(id)+"/conf", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status: got %d, want %d. Body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	ct := w.Header().Get("Content-Type")
-	if ct != "text/plain" {
-		t.Errorf("Content-Type: got %q, want text/plain", ct)
-	}
-
-	body := w.Body.String()
-	if !strings.Contains(body, "[Interface]") {
-		t.Error("conf should contain [Interface]")
-	}
-	if !strings.Contains(body, "[Peer]") {
-		t.Error("conf should contain [Peer]")
-	}
-	if !strings.Contains(body, "PersistentKeepalive") {
-		t.Error("conf should contain PersistentKeepalive")
-	}
-}
 
 func itoa(i int64) string {
 	return fmt.Sprintf("%d", i)
@@ -633,46 +594,6 @@ func TestRotateKeys_Success(t *testing.T) {
 	}
 }
 
-func TestGetPeerQR_Success(t *testing.T) {
-	h, db := newTestHandlers(t)
-	router := NewRouter(h)
-
-	key, _ := wgtypes.GeneratePrivateKey()
-	id, err := db.CreatePeer(&storage.Peer{
-		PublicKey:    key.PublicKey().String(),
-		FriendlyName: "QR Peer",
-		AllowedIPs:   "10.0.0.2/32",
-		Enabled:      true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest("GET", "/api/peers/"+itoa(id)+"/qr", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status: got %d, want %d. Body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	ct := w.Header().Get("Content-Type")
-	if ct != "image/png" {
-		t.Errorf("Content-Type: got %q, want image/png", ct)
-	}
-
-	// Verify it's a valid PNG (starts with PNG magic bytes).
-	body := w.Body.Bytes()
-	if len(body) < 8 {
-		t.Fatal("response too short to be a PNG")
-	}
-	pngMagic := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
-	for i, b := range pngMagic {
-		if body[i] != b {
-			t.Fatalf("not a valid PNG: byte %d is %x, want %x", i, body[i], b)
-		}
-	}
-}
 
 func TestStats_WithPeers(t *testing.T) {
 	db, err := storage.NewDB(":memory:")
@@ -841,19 +762,6 @@ func TestApprovePeer_NotFound(t *testing.T) {
 	router := NewRouter(h)
 
 	req := httptest.NewRequest("POST", "/api/peers/99999/approve", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status: got %d, want %d", w.Code, http.StatusNotFound)
-	}
-}
-
-func TestGetPeerQR_NotFound(t *testing.T) {
-	h, _ := newTestHandlers(t)
-	router := NewRouter(h)
-
-	req := httptest.NewRequest("GET", "/api/peers/99999/qr", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

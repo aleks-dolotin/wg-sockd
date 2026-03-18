@@ -143,10 +143,18 @@ export default function PeerNewPage() {
             <DialogHeader><DialogTitle>Peer Created</DialogTitle></DialogHeader>
             <Alert><AlertDescription>Save this configuration now. The private key will not be shown again.</AlertDescription></Alert>
             <div className="flex justify-center p-4">
-              <img src={'/api/peers/' + result.id + '/qr'} alt="QR Code" className="w-64 h-64" />
+              <img src={`data:image/png;base64,${result.qr}`} alt="QR Code" className="w-64 h-64" />
             </div>
             <DialogFooter>
-              <Button variant="outline" asChild><a href={'/api/peers/' + result.id + '/conf'} download>Download .conf</a></Button>
+              <Button variant="outline" onClick={() => {
+                const blob = new Blob([result.config], { type: 'text/plain' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `${result.friendly_name || 'peer'}.conf`
+                a.click()
+                URL.revokeObjectURL(url)
+              }}>Download .conf</Button>
               <Button onClick={() => { toast.success(`Peer ${name} created`); navigate('/peers') }}>Done</Button>
             </DialogFooter>
           </DialogContent>
