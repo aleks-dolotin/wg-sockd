@@ -537,6 +537,33 @@ The agent listens on a Unix domain socket with restricted permissions:
 
 ---
 
+## Upgrade
+
+Re-run the install script — it downloads the latest binary, replaces it, and restarts the service. Config and database are preserved.
+
+Full binary (with UI):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash
+```
+
+Agent-only (no UI, for K8s):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
+```
+
+For Kubernetes, upgrade the Helm chart:
+
+```bash
+helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
+  --version 0.10.0 -n wg-sockd
+```
+
+See [UPGRADING.md](UPGRADING.md) for version-specific migration notes.
+
+---
+
 ## Uninstall
 
 Stop and disable service:
