@@ -119,6 +119,41 @@ sudo wg-sockd --config /etc/wg-sockd/config.yaml --serve-ui
 
 UI is served on TCP `:8080` (configurable via `--ui-listen`).
 
+### Authentication
+
+By default, the API is protected only by Unix socket file permissions. To enable HTTP authentication for the web UI and API:
+
+**Step 1** — Generate a bcrypt password hash:
+
+```bash
+wg-sockd-ctl hash-password
+```
+
+**Step 2** — Add the `auth` block to `/etc/wg-sockd/config.yaml`:
+
+```yaml
+auth:
+  basic:
+    enabled: true
+    username: admin
+    password_hash: "$2a$12$..."   # output from step 1
+  token:
+    enabled: true
+    token: "your-random-secret-at-least-32-chars"
+  session_ttl: 15m
+  skip_unix_socket: true           # local CLI requires no credentials
+  secure_cookies: auto             # auto-detects HTTPS via X-Forwarded-Proto
+  max_sessions: 100
+```
+
+**Step 3** — Restart the agent:
+
+```bash
+sudo systemctl restart wg-sockd
+```
+
+See [Authentication](./authentication.md) for the full configuration reference, environment variables, Kubernetes setup, and security considerations.
+
 ### Uninstall
 
 ```bash

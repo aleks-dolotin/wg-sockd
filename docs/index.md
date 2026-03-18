@@ -41,6 +41,7 @@
 
 - [Project Overview](./project-overview.md)
 - [Architecture](./architecture.md)
+- [Authentication](./authentication.md)
 - [Source Tree Analysis](./source-tree-analysis.md)
 - [API Contracts](./api-contracts.md)
 - [Data Models](./data-models.md)

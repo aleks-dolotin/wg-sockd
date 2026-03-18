@@ -162,7 +162,101 @@ Delete profile. Fails with 409 if peers reference this profile.
 
 ## Authentication
 
-None. Access is controlled by Unix socket file permissions (0660, group `wg-sockd`). Only processes with the correct group membership can connect.
+Authentication is optional and disabled by default. When enabled, the agent supports two methods:
+
+- **Basic auth** — username/password login via `POST /api/auth/login`, which issues a session cookie (`wg_sockd_session`).
+- **Bearer token** — pass `Authorization: Bearer <token>` on every request. No session required.
+
+All `/api/*` endpoints (except `/api/health` and `/api/auth/*`) require authentication when any auth method is enabled. Unix socket requests are exempt by default (`skip_unix_socket: true`).
+
+See [Authentication](./authentication.md) for setup instructions and configuration reference.
+
+## Auth Endpoints
+
+The following endpoints are always registered, even when authentication is disabled.
+
+### POST /api/auth/login
+
+Authenticate with username and password. Returns a session cookie on success.
+
+**Request:**
+
+```json
+{
+  "username": "admin",
+  "password": "your-password"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "username": "admin",
+  "expires_at": "2026-03-18T16:00:00Z",
+  "session_ttl_seconds": 900
+}
+```
+
+Sets `wg_sockd_session` cookie (`HttpOnly`, `SameSite=Lax`).
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `auth_not_configured` | No auth methods enabled on the server |
+| 400 | `basic_auth_disabled` | Basic auth is not enabled |
+| 401 | `invalid_credentials` | Wrong username or password |
+| 429 | `rate_limit_exceeded` | Too many failed attempts (5 per 60 s per IP). `Retry-After: 60` header included |
+
+### POST /api/auth/logout
+
+Invalidate the current session and clear the session cookie.
+
+**Response 200:**
+
+```json
+{ "status": "ok" }
+```
+
+`DELETE /api/auth/logout` is an alias for the same operation (SameSite workaround).
+
+### GET /api/auth/session
+
+Check the current session status. Use this to determine whether the server requires authentication and whether the current session is valid.
+
+**Response 200 — authenticated:**
+
+```json
+{
+  "username": "admin",
+  "expires_at": "2026-03-18T16:00:00Z",
+  "auth_required": true,
+  "webauthn_available": false,
+  "session_ttl_seconds": 900
+}
+```
+
+**Response 200 — no auth configured:**
+
+```json
+{
+  "auth_required": false,
+  "webauthn_available": false,
+  "session_ttl_seconds": 900
+}
+```
+
+**Response 401 — not authenticated:**
+
+```json
+{
+  "error": "unauthorized",
+  "auth_required": true,
+  "webauthn_available": false,
+  "session_ttl_seconds": 900
+}
+```
 
 ## Rate Limiting
 
