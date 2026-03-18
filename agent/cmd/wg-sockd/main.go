@@ -100,6 +100,7 @@ func main() {
 	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
 	cfg.RateLimit = fileCfg.RateLimit
 	cfg.Auth = fileCfg.Auth
+	cfg.PeerDefaults = fileCfg.PeerDefaults
 	// Preserve auth defaults if not set in file.
 	if fileCfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = config.Defaults().Auth.SessionTTL
@@ -112,6 +113,11 @@ func main() {
 	}
 	// SkipUnixSocket defaults to true; YAML false is valid, so only override if zero-value AND file didn't set it.
 	// Since bool zero is false, we trust the file value and only set default if the entire Auth block was absent.
+
+	// Preserve PeerDefaults.ClientPersistentKeepalive default (25) if not set in file.
+	if fileCfg.PeerDefaults.ClientPersistentKeepalive == 0 && cfg.PeerDefaults.ClientPersistentKeepalive == 0 {
+		cfg.PeerDefaults.ClientPersistentKeepalive = config.Defaults().PeerDefaults.ClientPersistentKeepalive
+	}
 
 	// ServeUI and UIListen: use file value if not explicitly set on CLI.
 	if !explicitFlags["serve-ui"] {
@@ -239,10 +245,14 @@ func main() {
 		seeds := make([]storage.ProfileSeed, len(cfg.PeerProfiles))
 		for i, p := range cfg.PeerProfiles {
 			seeds[i] = storage.ProfileSeed{
-				Name:        p.Name,
-				AllowedIPs:  p.AllowedIPs,
-				ExcludeIPs:  p.ExcludeIPs,
-				Description: p.Description,
+				Name:                p.Name,
+				AllowedIPs:          p.AllowedIPs,
+				ExcludeIPs:          p.ExcludeIPs,
+				Description:         p.Description,
+				Endpoint:            p.Endpoint,
+				PersistentKeepalive: p.PersistentKeepalive,
+				ClientDNS:           p.ClientDNS,
+				ClientMTU:           p.ClientMTU,
 			}
 		}
 		if err := db.SeedProfiles(seeds); err != nil {
@@ -298,13 +308,18 @@ func main() {
 			if !p.Enabled {
 				continue
 			}
-			peers = append(peers, confwriter.PeerConf{
+			pc := confwriter.PeerConf{
 				PublicKey:    p.PublicKey,
 				AllowedIPs:   p.AllowedIPs,
 				FriendlyName: p.FriendlyName,
 				CreatedAt:    p.CreatedAt,
 				Notes:        p.Notes,
-			})
+				Endpoint:     p.Endpoint,
+			}
+			if p.PersistentKeepalive != nil {
+				pc.PersistentKeepalive = *p.PersistentKeepalive
+			}
+			peers = append(peers, pc)
 		}
 		return peers
 	})

@@ -27,6 +27,12 @@ export default function PeerNewPage() {
   const [customIPs, setCustomIPs] = useState('')
   const [cidrError, setCidrError] = useState('')
   const [result, setResult] = useState(null)
+  const [endpoint, setEndpoint] = useState('')
+  const [endpointError, setEndpointError] = useState('')
+  const [pka, setPka] = useState('')
+  const [clientDNS, setClientDNS] = useState('')
+  const [clientMTU, setClientMTU] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const createMut = useMutation({
     mutationFn: (data) => createPeer(data),
@@ -41,6 +47,15 @@ export default function PeerNewPage() {
   function handleSubmit(e) {
     e.preventDefault()
     setCidrError('')
+    // Validate endpoint.
+    if (endpoint) {
+      const parts = endpoint.split(':')
+      if (parts.length < 2 || !parts[parts.length - 1]) {
+        setEndpointError('Must be host:port format')
+        return
+      }
+      setEndpointError('')
+    }
     const body = { friendly_name: name, notes: notes || undefined }
     if (isCustom) {
       const cidrs = customIPs.split(',').map(s => s.trim()).filter(Boolean)
@@ -53,6 +68,10 @@ export default function PeerNewPage() {
     } else if (profile) {
       body.profile = profile
     }
+    if (endpoint) body.configured_endpoint = endpoint
+    if (pka !== '') body.persistent_keepalive = parseInt(pka, 10)
+    if (clientDNS) body.client_dns = clientDNS
+    if (clientMTU !== '') body.client_mtu = parseInt(clientMTU, 10)
     createMut.mutate(body)
   }
 
@@ -87,6 +106,30 @@ export default function PeerNewPage() {
             <Input value={customIPs} onChange={e => setCustomIPs(e.target.value)} placeholder="10.0.0.0/24, 192.168.1.0/24" /></div>)}
           <div><label className="text-sm font-medium">Notes</label>
             <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" /></div>
+          <div><label className="text-sm font-medium">Endpoint</label>
+            <Input value={endpoint} onChange={e => setEndpoint(e.target.value)}
+              onBlur={() => { if (endpoint && !endpoint.includes(':')) setEndpointError('Must be host:port format'); else setEndpointError('') }}
+              placeholder="host:port (for site-to-site peers)"
+              className={endpointError ? 'border-red-500' : ''} />
+            {endpointError && <p className="text-xs text-red-500 mt-1">{endpointError}</p>}</div>
+          <button type="button" onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <span className={`transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>▶</span>
+            Advanced Settings
+          </button>
+          {showAdvanced && (
+            <div className="space-y-3 pl-2 border-l-2 border-muted">
+              <div><label className="text-sm font-medium">PersistentKeepalive</label>
+                <Input type="number" min="0" max="65535" value={pka} onChange={e => setPka(e.target.value)}
+                  placeholder="0 = off, empty = inherit" /></div>
+              <div><label className="text-sm font-medium">Client DNS</label>
+                <Input value={clientDNS} onChange={e => setClientDNS(e.target.value)}
+                  placeholder="1.1.1.1, 8.8.8.8" /></div>
+              <div><label className="text-sm font-medium">Client MTU</label>
+                <Input type="number" min="0" max="9000" value={clientMTU} onChange={e => setClientMTU(e.target.value)}
+                  placeholder="auto (empty = inherit)" /></div>
+            </div>
+          )}
           {createMut.error && <Alert variant="destructive"><AlertDescription>{createMut.error.message}</AlertDescription></Alert>}
           {cidrError && <Alert variant="destructive"><AlertDescription>{cidrError}</AlertDescription></Alert>}
           <div className="flex gap-2">

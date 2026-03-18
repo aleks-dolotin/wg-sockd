@@ -309,3 +309,61 @@ func TestWriteConf_PresharedKey(t *testing.T) {
 		t.Error("PresharedKey should be present when provided")
 	}
 }
+
+func TestWriteConf_EndpointAndPKA(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0.conf")
+	os.WriteFile(path, []byte("[Interface]\nAddress = 10.0.0.1/24\n"), 0600)
+
+	peers := []PeerConf{
+		{
+			PublicKey:           "KEY_EP",
+			AllowedIPs:          "10.0.0.2/32",
+			Endpoint:            "10.0.0.2:51820",
+			PersistentKeepalive: 25,
+		},
+	}
+
+	err := WriteConf(path, peers)
+	if err != nil {
+		t.Fatalf("WriteConf: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if !strings.Contains(content, "Endpoint = 10.0.0.2:51820") {
+		t.Error("Endpoint should be present in [Peer] section")
+	}
+	if !strings.Contains(content, "PersistentKeepalive = 25") {
+		t.Error("PersistentKeepalive should be present in [Peer] section")
+	}
+}
+
+func TestWriteConf_EndpointAndPKA_Omitted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0.conf")
+	os.WriteFile(path, []byte("[Interface]\nAddress = 10.0.0.1/24\n"), 0600)
+
+	peers := []PeerConf{
+		{
+			PublicKey:           "KEY_NO_EP",
+			AllowedIPs:          "10.0.0.2/32",
+			Endpoint:            "",              // empty = omit
+			PersistentKeepalive: 0,               // 0 = omit
+		},
+	}
+
+	err := WriteConf(path, peers)
+	if err != nil {
+		t.Fatalf("WriteConf: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	if strings.Contains(content, "Endpoint") {
+		t.Error("Endpoint should be omitted when empty")
+	}
+	if strings.Contains(content, "PersistentKeepalive") {
+		t.Error("PersistentKeepalive should be omitted when 0")
+	}
+}

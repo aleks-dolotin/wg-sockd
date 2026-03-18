@@ -44,21 +44,23 @@ type Device struct {
 
 // Peer represents a WireGuard peer's current state.
 type Peer struct {
-	PublicKey       wgtypes.Key
-	Endpoint        *net.UDPAddr
-	AllowedIPs      []net.IPNet
-	LastHandshake   time.Time
-	ReceiveBytes    int64
-	TransmitBytes   int64
+	PublicKey           wgtypes.Key
+	Endpoint            *net.UDPAddr
+	AllowedIPs          []net.IPNet
+	LastHandshake       time.Time
+	ReceiveBytes        int64
+	TransmitBytes       int64
+	PersistentKeepalive time.Duration // 0 = not set / off
 }
 
 // PeerConfig describes a desired peer configuration change.
 type PeerConfig struct {
-	PublicKey         wgtypes.Key
-	AllowedIPs        []net.IPNet
-	Endpoint          *net.UDPAddr
-	Remove            bool
-	ReplaceAllowedIPs bool
+	PublicKey            wgtypes.Key
+	AllowedIPs           []net.IPNet
+	Endpoint             *net.UDPAddr
+	Remove               bool
+	ReplaceAllowedIPs    bool
+	PersistentKeepalive  *time.Duration // nil = don't change, &0 = off, &25s = enable
 }
 
 // ParseKey parses a base64-encoded WireGuard key string into a wgtypes.Key.

@@ -10,26 +10,35 @@ import (
 
 // Profile represents a peer profile record in the database.
 type Profile struct {
-	Name        string
-	AllowedIPs  []string
-	ExcludeIPs  []string
-	Description string
-	IsDefault   bool
-	CreatedAt   time.Time
+	Name                string
+	AllowedIPs          []string
+	ExcludeIPs          []string
+	Description         string
+	IsDefault           bool
+	CreatedAt           time.Time
+	Endpoint            string // default endpoint for new peers in this profile
+	PersistentKeepalive *int   // default server-side PKA; nil = inherit from global
+	ClientDNS           string // default client DNS; empty = inherit from global
+	ClientMTU           *int   // default client MTU; nil = inherit from global
 }
 
 // ProfileSeed represents a profile to seed from config.yaml.
 type ProfileSeed struct {
-	Name        string   `yaml:"name"`
-	AllowedIPs  []string `yaml:"allowed_ips"`
-	ExcludeIPs  []string `yaml:"exclude_ips"`
-	Description string   `yaml:"description"`
+	Name                string   `yaml:"name"`
+	AllowedIPs          []string `yaml:"allowed_ips"`
+	ExcludeIPs          []string `yaml:"exclude_ips"`
+	Description         string   `yaml:"description"`
+	Endpoint            string   `yaml:"endpoint"`
+	PersistentKeepalive *int     `yaml:"persistent_keepalive"`
+	ClientDNS           string   `yaml:"client_dns"`
+	ClientMTU           *int     `yaml:"client_mtu"`
 }
 
 // ListProfiles returns all profiles ordered by name.
 func (db *DB) ListProfiles() ([]Profile, error) {
 	rows, err := db.conn.Query(`
-		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at
+		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at,
+		       endpoint, persistent_keepalive, client_dns, client_mtu
 		FROM profiles
 		ORDER BY name ASC
 	`)
@@ -54,11 +63,15 @@ func (db *DB) ListProfiles() ([]Profile, error) {
 func (db *DB) GetProfile(name string) (*Profile, error) {
 	var p Profile
 	var allowedJSON, excludeJSON string
+	var pka sql.NullInt64
+	var mtu sql.NullInt64
 	err := db.conn.QueryRow(`
-		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at
+		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at,
+		       endpoint, persistent_keepalive, client_dns, client_mtu
 		FROM profiles
 		WHERE name = ?
-	`, name).Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt)
+	`, name).Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt,
+		&p.Endpoint, &pka, &p.ClientDNS, &mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +80,14 @@ func (db *DB) GetProfile(name string) (*Profile, error) {
 	}
 	if err := json.Unmarshal([]byte(excludeJSON), &p.ExcludeIPs); err != nil {
 		return nil, fmt.Errorf("parsing exclude_ips JSON for %q: %w", name, err)
+	}
+	if pka.Valid {
+		v := int(pka.Int64)
+		p.PersistentKeepalive = &v
+	}
+	if mtu.Valid {
+		v := int(mtu.Int64)
+		p.ClientMTU = &v
 	}
 	return &p, nil
 }
@@ -83,9 +104,10 @@ func (db *DB) CreateProfile(p *Profile) error {
 	}
 
 	_, err = db.conn.Exec(`
-		INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default)
-		VALUES (?, ?, ?, ?, ?)
-	`, p.Name, string(allowedJSON), string(excludeJSON), p.Description, p.IsDefault)
+		INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, endpoint, persistent_keepalive, client_dns, client_mtu)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.Name, string(allowedJSON), string(excludeJSON), p.Description, p.IsDefault,
+		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU)
 	if err != nil {
 		return fmt.Errorf("creating profile: %w", err)
 	}
@@ -105,9 +127,11 @@ func (db *DB) UpdateProfile(name string, p *Profile) error {
 	}
 
 	result, err := db.conn.Exec(`
-		UPDATE profiles SET allowed_ips = ?, exclude_ips = ?, description = ?
+		UPDATE profiles SET allowed_ips = ?, exclude_ips = ?, description = ?,
+		       endpoint = ?, persistent_keepalive = ?, client_dns = ?, client_mtu = ?
 		WHERE name = ?
-	`, string(allowedJSON), string(excludeJSON), p.Description, name)
+	`, string(allowedJSON), string(excludeJSON), p.Description,
+		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU, name)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
 	}
@@ -185,9 +209,10 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 		}
 
 		_, err = db.conn.Exec(`
-			INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default)
-			VALUES (?, ?, ?, ?, 1)
-		`, s.Name, string(allowedJSON), string(excludeJSON), s.Description)
+			INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, endpoint, persistent_keepalive, client_dns, client_mtu)
+			VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+		`, s.Name, string(allowedJSON), string(excludeJSON), s.Description,
+			s.Endpoint, s.PersistentKeepalive, s.ClientDNS, s.ClientMTU)
 		if err != nil {
 			return fmt.Errorf("seeding profile %q: %w", s.Name, err)
 		}
@@ -205,7 +230,10 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 func scanProfile(rows *sql.Rows) (Profile, error) {
 	var p Profile
 	var allowedJSON, excludeJSON string
-	if err := rows.Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt); err != nil {
+	var pka sql.NullInt64
+	var mtu sql.NullInt64
+	if err := rows.Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt,
+		&p.Endpoint, &pka, &p.ClientDNS, &mtu); err != nil {
 		return Profile{}, fmt.Errorf("scanning profile: %w", err)
 	}
 	if err := json.Unmarshal([]byte(allowedJSON), &p.AllowedIPs); err != nil {
@@ -213,6 +241,14 @@ func scanProfile(rows *sql.Rows) (Profile, error) {
 	}
 	if err := json.Unmarshal([]byte(excludeJSON), &p.ExcludeIPs); err != nil {
 		return Profile{}, fmt.Errorf("parsing exclude_ips JSON: %w", err)
+	}
+	if pka.Valid {
+		v := int(pka.Int64)
+		p.PersistentKeepalive = &v
+	}
+	if mtu.Valid {
+		v := int(mtu.Int64)
+		p.ClientMTU = &v
 	}
 	return p, nil
 }

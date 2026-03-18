@@ -14,10 +14,21 @@ import (
 
 // PeerProfileConfig represents a peer profile defined in config.yaml for seeding.
 type PeerProfileConfig struct {
-	Name        string   `yaml:"name"`
-	AllowedIPs  []string `yaml:"allowed_ips"`
-	ExcludeIPs  []string `yaml:"exclude_ips"`
-	Description string   `yaml:"description"`
+	Name                string   `yaml:"name"`
+	AllowedIPs          []string `yaml:"allowed_ips"`
+	ExcludeIPs          []string `yaml:"exclude_ips"`
+	Description         string   `yaml:"description"`
+	Endpoint            string   `yaml:"endpoint"`
+	PersistentKeepalive *int     `yaml:"persistent_keepalive"`
+	ClientDNS           string   `yaml:"client_dns"`
+	ClientMTU           *int     `yaml:"client_mtu"`
+}
+
+// PeerDefaultsConfig holds global defaults for client config generation (4-level cascade).
+type PeerDefaultsConfig struct {
+	ClientDNS                  string `yaml:"client_dns"`
+	ClientMTU                  int    `yaml:"client_mtu"`
+	ClientPersistentKeepalive  int    `yaml:"client_persistent_keepalive"`
 }
 
 // BasicAuthConfig holds username/password authentication settings.
@@ -68,6 +79,7 @@ type Config struct {
 	PeerLimit          int                  `yaml:"peer_limit"`
 	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
 	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
+	PeerDefaults       PeerDefaultsConfig   `yaml:"peer_defaults"`
 	RateLimit          int                  `yaml:"rate_limit"`
 	ServeUI            bool                 `yaml:"serve_ui"`
 	UIListen           string               `yaml:"ui_listen"`
@@ -93,6 +105,9 @@ func Defaults() *Config {
 			SkipUnixSocket: true,
 			SecureCookies:  "auto",
 			MaxSessions:    100,
+		},
+		PeerDefaults: PeerDefaultsConfig{
+			ClientPersistentKeepalive: 25, // current hardcoded value preserved as default
 		},
 	}
 }
@@ -235,6 +250,23 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 			return nil
 		}},
 		{"WG_SOCKD_AUTH_WEBAUTHN_ORIGIN", func(v string) error { c.Auth.WebAuthn.Origin = v; return nil }},
+		{"WG_SOCKD_CLIENT_DNS", func(v string) error { c.PeerDefaults.ClientDNS = v; return nil }},
+		{"WG_SOCKD_CLIENT_MTU", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid integer value %q", v)
+			}
+			c.PeerDefaults.ClientMTU = n
+			return nil
+		}},
+		{"WG_SOCKD_CLIENT_PERSISTENT_KEEPALIVE", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid integer value %q", v)
+			}
+			c.PeerDefaults.ClientPersistentKeepalive = n
+			return nil
+		}},
 	}
 
 	for _, m := range mappings {

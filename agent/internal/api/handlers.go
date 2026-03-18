@@ -80,6 +80,13 @@ func (h *Handlers) ListPeers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pre-load all profiles into map for N+1 prevention.
+	profiles, _ := h.store.ListProfiles()
+	profileMap := make(map[string]*storage.Profile, len(profiles))
+	for i := range profiles {
+		profileMap[profiles[i].Name] = &profiles[i]
+	}
+
 	responses := make([]PeerResponse, 0, len(dbPeers))
 	for _, dbp := range dbPeers {
 		resp := peerToResponse(dbp)
@@ -97,6 +104,9 @@ func (h *Handlers) ListPeers(w http.ResponseWriter, r *http.Request) {
 				resp.TransferTx = wgp.TransmitBytes
 			}
 		}
+
+		// Resolve client conf cascade.
+		h.resolveClientConfForPeer(&resp, dbp, profileMap)
 
 		responses = append(responses, resp)
 	}
@@ -180,6 +190,24 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate endpoint if provided.
+	if req.ConfiguredEndpoint != "" {
+		if _, _, err := net.SplitHostPort(req.ConfiguredEndpoint); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("invalid endpoint format %q: must be host:port", req.ConfiguredEndpoint))
+			return
+		}
+	}
+
+	// Validate persistent_keepalive range.
+	if req.PersistentKeepalive != nil {
+		if *req.PersistentKeepalive < 0 || *req.PersistentKeepalive > 65535 {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				"persistent_keepalive must be 0-65535")
+			return
+		}
+	}
+
 	// Generate keypair.
 	privKey, pubKey, err := h.wgClient.GenerateKeyPair()
 	if err != nil {
@@ -195,12 +223,24 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add to wgctrl.
-	err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
-		{
-			PublicKey:  pubKey,
-			AllowedIPs: allowedNets,
-		},
-	})
+	wgPeerCfg := wireguard.PeerConfig{
+		PublicKey:  pubKey,
+		AllowedIPs: allowedNets,
+	}
+	// Parse endpoint for wgctrl (best-effort — DNS may not resolve yet).
+	if req.ConfiguredEndpoint != "" {
+		udpAddr, resolveErr := net.ResolveUDPAddr("udp", req.ConfiguredEndpoint)
+		if resolveErr != nil {
+			log.Printf("WARN: endpoint DNS resolution failed for %q: %v — stored in DB, wgctrl deferred to reconciler", req.ConfiguredEndpoint, resolveErr)
+		} else {
+			wgPeerCfg.Endpoint = udpAddr
+		}
+	}
+	if req.PersistentKeepalive != nil {
+		d := time.Duration(*req.PersistentKeepalive) * time.Second
+		wgPeerCfg.PersistentKeepalive = &d
+	}
+	err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{wgPeerCfg})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "wireguard_error", err.Error())
 		return
@@ -209,10 +249,14 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	// Insert to SQLite.
 	allowedIPsStr := strings.Join(resolvedAllowedIPs, ",")
 	dbPeer := &storage.Peer{
-		PublicKey:     pubKey.String(),
-		FriendlyName:  req.FriendlyName,
-		AllowedIPs:    allowedIPsStr,
-		Enabled:       true,
+		PublicKey:           pubKey.String(),
+		FriendlyName:        req.FriendlyName,
+		AllowedIPs:          allowedIPsStr,
+		Enabled:             true,
+		Endpoint:            req.ConfiguredEndpoint,
+		PersistentKeepalive: req.PersistentKeepalive,
+		ClientDNS:           req.ClientDNS,
+		ClientMTU:           req.ClientMTU,
 	}
 	if hasProfile {
 		dbPeer.Profile = req.Profile
@@ -239,14 +283,21 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := PeerResponse{
-		ID:           id,
-		PublicKey:    pubKey.String(),
-		FriendlyName: req.FriendlyName,
-		AllowedIPs:   resolvedAllowedIPs,
-		Profile:      req.Profile,
-		Enabled:      true,
-		CreatedAt:    time.Now(),
+		ID:                  id,
+		PublicKey:           pubKey.String(),
+		FriendlyName:        req.FriendlyName,
+		AllowedIPs:          resolvedAllowedIPs,
+		Profile:             req.Profile,
+		Enabled:             true,
+		CreatedAt:           time.Now(),
+		ConfiguredEndpoint:  req.ConfiguredEndpoint,
+		PersistentKeepalive: req.PersistentKeepalive,
+		ClientDNS:           req.ClientDNS,
+		ClientMTU:           req.ClientMTU,
 	}
+
+	// Resolve client conf cascade for the response.
+	h.resolveClientConfForPeer(&resp, *dbPeer, nil)
 
 	// Return response with private key embedded in a create-specific wrapper.
 	type CreatePeerResponse struct {
@@ -364,10 +415,24 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 			_, ipNet, _ := net.ParseCIDR(cidr)
 			nets = append(nets, *ipNet)
 		}
-		wgConfigs = append(wgConfigs, wireguard.PeerConfig{
+		wgCfg := wireguard.PeerConfig{
 			PublicKey:  rp.pubKey,
 			AllowedIPs: nets,
-		})
+		}
+		// Pass endpoint to wgctrl (best-effort DNS resolution).
+		if rp.req.ConfiguredEndpoint != "" {
+			udpAddr, resolveErr := net.ResolveUDPAddr("udp", rp.req.ConfiguredEndpoint)
+			if resolveErr != nil {
+				log.Printf("WARN: batch endpoint DNS resolution failed for %q: %v — deferred to reconciler", rp.req.ConfiguredEndpoint, resolveErr)
+			} else {
+				wgCfg.Endpoint = udpAddr
+			}
+		}
+		if rp.req.PersistentKeepalive != nil {
+			d := time.Duration(*rp.req.PersistentKeepalive) * time.Second
+			wgCfg.PersistentKeepalive = &d
+		}
+		wgConfigs = append(wgConfigs, wgCfg)
 	}
 
 	// Pause reconciler BEFORE touching the kernel: the entire sequence
@@ -387,10 +452,14 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	dbPeers := make([]*storage.Peer, 0, len(resolved))
 	for _, rp := range resolved {
 		dbPeer := &storage.Peer{
-			PublicKey:    rp.pubKey.String(),
-			FriendlyName: rp.req.FriendlyName,
-			AllowedIPs:   strings.Join(rp.allowedIPs, ","),
-			Enabled:      true,
+			PublicKey:           rp.pubKey.String(),
+			FriendlyName:        rp.req.FriendlyName,
+			AllowedIPs:          strings.Join(rp.allowedIPs, ","),
+			Enabled:             true,
+			Endpoint:            rp.req.ConfiguredEndpoint,
+			PersistentKeepalive: rp.req.PersistentKeepalive,
+			ClientDNS:           rp.req.ClientDNS,
+			ClientMTU:           rp.req.ClientMTU,
 		}
 		if rp.req.Profile != nil && *rp.req.Profile != "" {
 			dbPeer.Profile = rp.req.Profile
@@ -484,6 +553,9 @@ func (h *Handlers) GetPeer(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Resolve client conf cascade.
+	h.resolveClientConfForPeer(&resp, *peer, nil)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -617,6 +689,69 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		dbUpdate.Notes = req.Notes
 	}
 
+	// Handle new fields: endpoint, PKA, client DNS/MTU.
+	endpointChanged := false
+	pkaChanged := false
+
+	if req.ConfiguredEndpoint != nil {
+		// Validate endpoint format.
+		if *req.ConfiguredEndpoint != "" {
+			if _, _, err := net.SplitHostPort(*req.ConfiguredEndpoint); err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					fmt.Sprintf("invalid endpoint format %q: must be host:port", *req.ConfiguredEndpoint))
+				return
+			}
+		}
+		dbUpdate.Endpoint = req.ConfiguredEndpoint
+		endpointChanged = true
+	}
+	if req.PersistentKeepalive != nil {
+		if *req.PersistentKeepalive != nil {
+			v := **req.PersistentKeepalive
+			if v < 0 || v > 65535 {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					"persistent_keepalive must be 0-65535")
+				return
+			}
+		}
+		dbUpdate.PersistentKeepalive = req.PersistentKeepalive
+		pkaChanged = true
+	}
+	if req.ClientDNS != nil {
+		dbUpdate.ClientDNS = req.ClientDNS
+	}
+	if req.ClientMTU != nil {
+		dbUpdate.ClientMTU = req.ClientMTU
+	}
+
+	// Update wgctrl if endpoint or PKA changed (server-side conf fields).
+	if endpointChanged || pkaChanged {
+		pubKeyBytes, parseErr := wireguard.ParseKey(existing.PublicKey)
+		if parseErr != nil {
+			writeError(w, http.StatusInternalServerError, "key_parse_error", parseErr.Error())
+			return
+		}
+		wgCfg := wireguard.PeerConfig{PublicKey: pubKeyBytes}
+		if endpointChanged && req.ConfiguredEndpoint != nil && *req.ConfiguredEndpoint != "" {
+			udpAddr, resolveErr := net.ResolveUDPAddr("udp", *req.ConfiguredEndpoint)
+			if resolveErr != nil {
+				log.Printf("WARN: endpoint DNS resolution failed for %q: %v — stored in DB, wgctrl deferred", *req.ConfiguredEndpoint, resolveErr)
+			} else {
+				wgCfg.Endpoint = udpAddr
+			}
+		}
+		if pkaChanged && req.PersistentKeepalive != nil && *req.PersistentKeepalive != nil {
+			d := time.Duration(**req.PersistentKeepalive) * time.Second
+			wgCfg.PersistentKeepalive = &d
+		}
+		if wgCfg.Endpoint != nil || wgCfg.PersistentKeepalive != nil {
+			if wgErr := h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{wgCfg}); wgErr != nil {
+				log.Printf("WARN: wgctrl reconfigure failed for peer %s: %v — DB update proceeds", existing.PublicKey, wgErr)
+			}
+		}
+		needsWgUpdate = true // trigger conf rewrite
+	}
+
 	if err := h.store.UpdatePeer(existing.PublicKey, dbUpdate); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
@@ -653,6 +788,9 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Resolve client conf cascade.
+	h.resolveClientConfForPeer(&resp, *updated, nil)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -766,7 +904,7 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build new .conf content.
+	// Build new .conf content using ClientConfBuilder.
 	dev, devErr := h.wgClient.GetDevice(h.cfg.Interface)
 	serverPubKey := ""
 	serverPort := 51820
@@ -781,18 +919,8 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 			"peer has no allowed_ips — cannot generate client config")
 		return
 	}
-	serverAllowedIPs := "0.0.0.0/0, ::/0"
 
-	conf := fmt.Sprintf(`[Interface]
-PrivateKey = %s
-Address = %s
-
-[Peer]
-PublicKey = %s
-AllowedIPs = %s
-Endpoint = %s
-PersistentKeepalive = 25
-`, newPrivKey.String(), clientAddress, serverPubKey, serverAllowedIPs, h.serverEndpoint(serverPort))
+	conf := h.buildClientConf(peer, newPrivKey.String(), serverPubKey, serverPort)
 
 	type RotateKeysResponse struct {
 		PublicKey  string `json:"public_key"`
@@ -979,20 +1107,7 @@ func (h *Handlers) GetPeerConf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [Peer].AllowedIPs defines what traffic the CLIENT routes through the tunnel.
-	// Default to full tunnel (0.0.0.0/0, ::/0). Profiles can customize this later.
-	serverAllowedIPs := "0.0.0.0/0, ::/0"
-
-	conf := fmt.Sprintf(`[Interface]
-# PrivateKey = <insert your private key>
-Address = %s
-
-[Peer]
-PublicKey = %s
-AllowedIPs = %s
-Endpoint = %s
-PersistentKeepalive = 25
-`, clientAddress, dev.PublicKey.String(), serverAllowedIPs, h.serverEndpoint(dev.ListenPort))
+	conf := h.buildClientConf(peer, "", dev.PublicKey.String(), dev.ListenPort)
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.conf", peer.FriendlyName))
@@ -1033,18 +1148,8 @@ func (h *Handlers) GetPeerQR(w http.ResponseWriter, r *http.Request) {
 			"peer has no allowed_ips — cannot generate QR code")
 		return
 	}
-	serverAllowedIPs := "0.0.0.0/0, ::/0"
 
-	conf := fmt.Sprintf(`[Interface]
-# PrivateKey = <insert your private key>
-Address = %s
-
-[Peer]
-PublicKey = %s
-AllowedIPs = %s
-Endpoint = %s
-PersistentKeepalive = 25
-`, clientAddress, dev.PublicKey.String(), serverAllowedIPs, h.serverEndpoint(dev.ListenPort))
+	conf := h.buildClientConf(peer, "", dev.PublicKey.String(), dev.ListenPort)
 
 	png, err := qrcode.Encode(conf, qrcode.Medium, 256)
 	if err != nil {
@@ -1141,6 +1246,49 @@ func (h *Handlers) serverEndpoint(listenPort int) string {
 	return fmt.Sprintf("<server_endpoint>:%d", listenPort)
 }
 
+// buildClientConf generates a WireGuard client .conf string for a peer,
+// using the 4-level cascade for DNS, MTU, PersistentKeepalive.
+// privateKey is empty for template-only confs (GetPeerConf).
+func (h *Handlers) buildClientConf(peer *storage.Peer, privateKey string, serverPubKey string, serverPort int) string {
+	// Resolve cascade.
+	peerVals := confwriter.ClientConfPeerValues{
+		DNS: peer.ClientDNS,
+		MTU: peer.ClientMTU,
+		PKA: peer.PersistentKeepalive,
+	}
+	var profileVals *confwriter.ClientConfProfileValues
+	if peer.Profile != nil && *peer.Profile != "" {
+		profile, err := h.store.GetProfile(*peer.Profile)
+		if err != nil {
+			log.Printf("WARN: could not load profile %q for client conf: %v", *peer.Profile, err)
+		} else {
+			profileVals = &confwriter.ClientConfProfileValues{
+				DNS: profile.ClientDNS,
+				MTU: profile.ClientMTU,
+				PKA: profile.PersistentKeepalive,
+			}
+		}
+	}
+	defaults := confwriter.ClientConfDefaults{
+		DNS: h.cfg.PeerDefaults.ClientDNS,
+		MTU: h.cfg.PeerDefaults.ClientMTU,
+		PKA: h.cfg.PeerDefaults.ClientPersistentKeepalive,
+	}
+	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
+
+	b := confwriter.NewClientConfBuilder()
+	b.SetAddress(peer.AllowedIPs).
+		SetServerPublicKey(serverPubKey).
+		SetServerEndpoint(h.serverEndpoint(serverPort)).
+		SetDNS(rc.DNS).
+		SetMTU(rc.MTU).
+		SetPersistentKeepalive(rc.PKA)
+	if privateKey != "" {
+		b.SetPrivateKey(privateKey)
+	}
+	return b.Build()
+}
+
 // rewriteConf rewrites the WireGuard conf file from current DB state.
 // Uses DirectWrite to bypass debounce — the caller needs a synchronous
 // result for rollback logic. Also cancels any pending debounced write.
@@ -1181,13 +1329,18 @@ func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
 		if !p.Enabled {
 			continue
 		}
-		peers = append(peers, confwriter.PeerConf{
+		pc := confwriter.PeerConf{
 			PublicKey:    p.PublicKey,
 			AllowedIPs:   p.AllowedIPs,
 			FriendlyName: p.FriendlyName,
 			CreatedAt:    p.CreatedAt,
 			Notes:        p.Notes,
-		})
+			Endpoint:     p.Endpoint,
+		}
+		if p.PersistentKeepalive != nil {
+			pc.PersistentKeepalive = *p.PersistentKeepalive
+		}
+		peers = append(peers, pc)
 	}
 	return peers, nil
 }
@@ -1200,14 +1353,65 @@ func peerToResponse(p storage.Peer) PeerResponse {
 	}
 
 	return PeerResponse{
-		ID:             p.ID,
-		PublicKey:      p.PublicKey,
-		FriendlyName:   p.FriendlyName,
-		AllowedIPs:     allowedIPs,
-		Profile:        p.Profile,
-		Enabled:        p.Enabled,
-		AutoDiscovered: p.AutoDiscovered,
-		CreatedAt:      p.CreatedAt,
-		Notes:          p.Notes,
+		ID:                  p.ID,
+		PublicKey:           p.PublicKey,
+		FriendlyName:        p.FriendlyName,
+		AllowedIPs:          allowedIPs,
+		Profile:             p.Profile,
+		Enabled:             p.Enabled,
+		AutoDiscovered:      p.AutoDiscovered,
+		CreatedAt:           p.CreatedAt,
+		Notes:               p.Notes,
+		ConfiguredEndpoint:  p.Endpoint,
+		PersistentKeepalive: p.PersistentKeepalive,
+		ClientDNS:           p.ClientDNS,
+		ClientMTU:           p.ClientMTU,
 	}
+}
+
+// resolveClientConfForPeer loads the peer's profile (if any), resolves the 4-level cascade,
+// and populates the Resolved* fields on the PeerResponse.
+// profileMap is optional — if provided, profiles are looked up from the map (N+1 prevention).
+// If profileMap is nil and peer has a profile, it will be loaded from DB.
+func (h *Handlers) resolveClientConfForPeer(resp *PeerResponse, peer storage.Peer, profileMap map[string]*storage.Profile) {
+	peerVals := confwriter.ClientConfPeerValues{
+		DNS: peer.ClientDNS,
+		MTU: peer.ClientMTU,
+		PKA: peer.PersistentKeepalive,
+	}
+
+	var profileVals *confwriter.ClientConfProfileValues
+	if peer.Profile != nil && *peer.Profile != "" {
+		var profile *storage.Profile
+		if profileMap != nil {
+			profile = profileMap[*peer.Profile]
+		} else {
+			var err error
+			profile, err = h.store.GetProfile(*peer.Profile)
+			if err != nil {
+				log.Printf("WARN: could not load profile %q for peer %d: %v — using global defaults", *peer.Profile, peer.ID, err)
+			}
+		}
+		if profile != nil {
+			profileVals = &confwriter.ClientConfProfileValues{
+				DNS: profile.ClientDNS,
+				MTU: profile.ClientMTU,
+				PKA: profile.PersistentKeepalive,
+			}
+		}
+	}
+
+	defaults := confwriter.ClientConfDefaults{
+		DNS: h.cfg.PeerDefaults.ClientDNS,
+		MTU: h.cfg.PeerDefaults.ClientMTU,
+		PKA: h.cfg.PeerDefaults.ClientPersistentKeepalive,
+	}
+
+	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
+	resp.ResolvedClientDNS = rc.DNS
+	resp.ResolvedClientDNSSource = rc.DNSSource
+	resp.ResolvedClientMTU = rc.MTU
+	resp.ResolvedClientMTUSource = rc.MTUSource
+	resp.ResolvedClientPKA = rc.PKA
+	resp.ResolvedClientPKASource = rc.PKASource
 }

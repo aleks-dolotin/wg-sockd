@@ -48,9 +48,13 @@ type PeerResponse struct {
 }
 
 type CreatePeerRequest struct {
-	FriendlyName string   `json:"friendly_name"`
-	AllowedIPs   []string `json:"allowed_ips,omitempty"`
-	Profile      *string  `json:"profile,omitempty"`
+	FriendlyName        string   `json:"friendly_name"`
+	AllowedIPs          []string `json:"allowed_ips,omitempty"`
+	Profile             *string  `json:"profile,omitempty"`
+	ConfiguredEndpoint  string   `json:"configured_endpoint,omitempty"`
+	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
+	ClientDNS           string   `json:"client_dns,omitempty"`
+	ClientMTU           *int     `json:"client_mtu,omitempty"`
 }
 
 type UpdatePeerRequest struct {
@@ -77,10 +81,14 @@ type ProfileResponse struct {
 }
 
 type CreateProfileRequest struct {
-	Name        string   `json:"name"`
-	AllowedIPs  []string `json:"allowed_ips"`
-	ExcludeIPs  []string `json:"exclude_ips,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Name                string   `json:"name"`
+	AllowedIPs          []string `json:"allowed_ips"`
+	ExcludeIPs          []string `json:"exclude_ips,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	Endpoint            string   `json:"endpoint,omitempty"`
+	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
+	ClientDNS           string   `json:"client_dns,omitempty"`
+	ClientMTU           *int     `json:"client_mtu,omitempty"`
 }
 
 type UpdateProfileRequest struct {
@@ -406,6 +414,10 @@ func peersAdd(client *http.Client, args []string) error {
 	name := fs.String("name", "", "friendly name for the peer (required)")
 	profile := fs.String("profile", "", "profile name")
 	allowedIPs := fs.String("allowed-ips", "", "comma-separated allowed IPs (alternative to --profile)")
+	endpoint := fs.String("endpoint", "", "configured endpoint (host:port)")
+	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive interval in seconds (0=off)")
+	clientDNS := fs.String("client-dns", "", "client DNS servers (comma-separated)")
+	clientMTU := fs.Int("client-mtu", -1, "client MTU value")
 	_ = fs.Parse(args)
 
 	if *name == "" {
@@ -417,6 +429,18 @@ func peersAdd(client *http.Client, args []string) error {
 		req.Profile = profile
 	} else if *allowedIPs != "" {
 		req.AllowedIPs = strings.Split(*allowedIPs, ",")
+	}
+	if *endpoint != "" {
+		req.ConfiguredEndpoint = *endpoint
+	}
+	if *pka >= 0 {
+		req.PersistentKeepalive = pka
+	}
+	if *clientDNS != "" {
+		req.ClientDNS = *clientDNS
+	}
+	if *clientMTU >= 0 {
+		req.ClientMTU = clientMTU
 	}
 
 	body, err := json.Marshal(req)
@@ -458,6 +482,10 @@ func peersUpdate(client *http.Client, args []string) error {
 	notes := fs.String("notes", "", "new notes")
 	enable := fs.Bool("enable", false, "enable the peer")
 	disable := fs.Bool("disable", false, "disable the peer")
+	endpoint := fs.String("endpoint", "", "configured endpoint (host:port, empty to clear)")
+	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive (0=off, -1=skip)")
+	clientDNS := fs.String("client-dns", "", "client DNS (empty to clear)")
+	clientMTU := fs.Int("client-mtu", -1, "client MTU (0=auto, -1=skip)")
 	_ = fs.Parse(args)
 
 	if *id == 0 {
@@ -486,6 +514,21 @@ func peersUpdate(client *http.Client, args []string) error {
 	}
 	if *disable {
 		update["enabled"] = false
+	}
+	// Check if endpoint flag was explicitly set (even to empty string to clear).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "endpoint" {
+			update["configured_endpoint"] = *endpoint
+		}
+		if f.Name == "client-dns" {
+			update["client_dns"] = *clientDNS
+		}
+	})
+	if *pka >= 0 {
+		update["persistent_keepalive"] = *pka
+	}
+	if *clientMTU >= 0 {
+		update["client_mtu"] = *clientMTU
 	}
 
 	if len(update) == 0 {
@@ -733,6 +776,10 @@ func profilesCreate(client *http.Client, args []string) error {
 	allowedIPs := fs.String("allowed-ips", "", "comma-separated allowed IPs (required)")
 	excludeIPs := fs.String("exclude-ips", "", "comma-separated exclude IPs")
 	description := fs.String("description", "", "profile description")
+	endpoint := fs.String("endpoint", "", "default endpoint for peers in this profile")
+	pka := fs.Int("persistent-keepalive", -1, "default persistent keepalive (0=off)")
+	clientDNS := fs.String("client-dns", "", "default client DNS")
+	clientMTU := fs.Int("client-mtu", -1, "default client MTU")
 	_ = fs.Parse(args)
 
 	if *name == "" || *allowedIPs == "" {
@@ -740,12 +787,24 @@ func profilesCreate(client *http.Client, args []string) error {
 	}
 
 	req := CreateProfileRequest{
-		Name:       *name,
-		AllowedIPs: splitTrim(*allowedIPs),
+		Name:        *name,
+		AllowedIPs:  splitTrim(*allowedIPs),
 		Description: *description,
 	}
 	if *excludeIPs != "" {
 		req.ExcludeIPs = splitTrim(*excludeIPs)
+	}
+	if *endpoint != "" {
+		req.Endpoint = *endpoint
+	}
+	if *pka >= 0 {
+		req.PersistentKeepalive = pka
+	}
+	if *clientDNS != "" {
+		req.ClientDNS = *clientDNS
+	}
+	if *clientMTU >= 0 {
+		req.ClientMTU = clientMTU
 	}
 
 	body, err := json.Marshal(req)
@@ -787,6 +846,10 @@ func profilesUpdate(client *http.Client, args []string) error {
 	allowedIPs := fs.String("allowed-ips", "", "comma-separated allowed IPs")
 	excludeIPs := fs.String("exclude-ips", "", "comma-separated exclude IPs")
 	description := fs.String("description", "", "profile description")
+	endpoint := fs.String("endpoint", "", "default endpoint for peers")
+	pka := fs.Int("persistent-keepalive", -1, "default persistent keepalive (0=off)")
+	clientDNS := fs.String("client-dns", "", "default client DNS")
+	clientMTU := fs.Int("client-mtu", -1, "default client MTU")
 	_ = fs.Parse(args)
 
 	if *name == "" {
@@ -802,6 +865,21 @@ func profilesUpdate(client *http.Client, args []string) error {
 	}
 	if *description != "" {
 		update["description"] = *description
+	}
+	// Check explicit flags for fields that can be set to empty.
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "endpoint" {
+			update["endpoint"] = *endpoint
+		}
+		if f.Name == "client-dns" {
+			update["client_dns"] = *clientDNS
+		}
+	})
+	if *pka >= 0 {
+		update["persistent_keepalive"] = *pka
+	}
+	if *clientMTU >= 0 {
+		update["client_mtu"] = *clientMTU
 	}
 
 	if len(update) == 0 {

@@ -7,32 +7,73 @@ import (
 	"time"
 )
 
+// scanPeerColumns is the canonical column list for all peer SELECT queries.
+const scanPeerColumns = `id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes, endpoint, persistent_keepalive, client_dns, client_mtu`
+
+// scanPeer scans a peer row into a Peer struct.
+func scanPeer(scanner interface{ Scan(dest ...any) error }) (Peer, error) {
+	var p Peer
+	var pka sql.NullInt64
+	var mtu sql.NullInt64
+	if err := scanner.Scan(&p.ID, &p.PublicKey, &p.FriendlyName, &p.AllowedIPs, &p.Profile,
+		&p.Enabled, &p.AutoDiscovered, &p.CreatedAt, &p.Notes,
+		&p.Endpoint, &pka, &p.ClientDNS, &mtu); err != nil {
+		return Peer{}, err
+	}
+	if pka.Valid {
+		v := int(pka.Int64)
+		p.PersistentKeepalive = &v
+	}
+	if mtu.Valid {
+		v := int(mtu.Int64)
+		p.ClientMTU = &v
+	}
+	return p, nil
+}
+
 // Peer represents a peer record in the database.
 type Peer struct {
-	ID             int64
-	PublicKey      string
-	FriendlyName   string
-	AllowedIPs     string
-	Profile        *string // nullable
-	Enabled        bool
-	AutoDiscovered bool
-	CreatedAt      time.Time
-	Notes          string
+	ID                 int64
+	PublicKey          string
+	FriendlyName       string
+	AllowedIPs         string
+	Profile            *string // nullable
+	Enabled            bool
+	AutoDiscovered     bool
+	CreatedAt          time.Time
+	Notes              string
+	Endpoint           string // configured endpoint for server wg0.conf (empty = not set)
+	PersistentKeepalive *int  // server-side PKA for wg0.conf; nil = inherit from profile/global
+	ClientDNS          string // client download conf DNS (empty = inherit)
+	ClientMTU          *int   // client download conf MTU; nil = inherit
 }
 
 // PeerUpdate holds optional fields for partial peer updates.
+//
+// Pointer semantics:
+//   - nil           → don't update this field
+//   - *string/etc   → set to this value
+//
+// Pointer-to-pointer semantics (for nullable DB columns):
+//   - nil           → don't update
+//   - non-nil → nil → set DB column to NULL (inherit from profile/global)
+//   - non-nil → val → set DB column to val
 type PeerUpdate struct {
-	FriendlyName   *string
-	AllowedIPs     *string
-	Profile        **string // pointer-to-pointer for nullable: nil = don't update, non-nil = set value
-	Enabled        *bool
-	Notes          *string
+	FriendlyName       *string
+	AllowedIPs         *string
+	Profile            **string // pointer-to-pointer for nullable
+	Enabled            *bool
+	Notes              *string
+	Endpoint           *string
+	PersistentKeepalive **int  // pointer-to-pointer: nil=skip, *nil=set NULL, **val=set value
+	ClientDNS          *string
+	ClientMTU          **int  // pointer-to-pointer: nil=skip, *nil=set NULL, **val=set value
 }
 
 // ListPeers returns all peers ordered by created_at.
 func (db *DB) ListPeers() ([]Peer, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes
+		SELECT ` + scanPeerColumns + `
 		FROM peers
 		ORDER BY created_at ASC
 	`)
@@ -43,8 +84,8 @@ func (db *DB) ListPeers() ([]Peer, error) {
 
 	var peers []Peer
 	for rows.Next() {
-		var p Peer
-		if err := rows.Scan(&p.ID, &p.PublicKey, &p.FriendlyName, &p.AllowedIPs, &p.Profile, &p.Enabled, &p.AutoDiscovered, &p.CreatedAt, &p.Notes); err != nil {
+		p, err := scanPeer(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scanning peer: %w", err)
 		}
 		peers = append(peers, p)
@@ -55,12 +96,12 @@ func (db *DB) ListPeers() ([]Peer, error) {
 // GetPeerByPubKey returns a single peer by public key.
 // Returns sql.ErrNoRows if not found.
 func (db *DB) GetPeerByPubKey(pubKey string) (*Peer, error) {
-	var p Peer
-	err := db.conn.QueryRow(`
-		SELECT id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes
+	row := db.conn.QueryRow(`
+		SELECT `+scanPeerColumns+`
 		FROM peers
 		WHERE public_key = ?
-	`, pubKey).Scan(&p.ID, &p.PublicKey, &p.FriendlyName, &p.AllowedIPs, &p.Profile, &p.Enabled, &p.AutoDiscovered, &p.CreatedAt, &p.Notes)
+	`, pubKey)
+	p, err := scanPeer(row)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +111,12 @@ func (db *DB) GetPeerByPubKey(pubKey string) (*Peer, error) {
 // GetPeerByID returns a single peer by ID.
 // Returns sql.ErrNoRows if not found.
 func (db *DB) GetPeerByID(id int64) (*Peer, error) {
-	var p Peer
-	err := db.conn.QueryRow(`
-		SELECT id, public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, created_at, notes
+	row := db.conn.QueryRow(`
+		SELECT `+scanPeerColumns+`
 		FROM peers
 		WHERE id = ?
-	`, id).Scan(&p.ID, &p.PublicKey, &p.FriendlyName, &p.AllowedIPs, &p.Profile, &p.Enabled, &p.AutoDiscovered, &p.CreatedAt, &p.Notes)
+	`, id)
+	p, err := scanPeer(row)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +126,10 @@ func (db *DB) GetPeerByID(id int64) (*Peer, error) {
 // CreatePeer inserts a new peer and returns the generated ID.
 func (db *DB) CreatePeer(p *Peer) (int64, error) {
 	result, err := db.conn.Exec(`
-		INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes)
+		INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes,
+		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU)
 	if err != nil {
 		return 0, fmt.Errorf("creating peer: %w", err)
 	}
@@ -132,6 +174,22 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 		sets = append(sets, "notes = ?")
 		args = append(args, *u.Notes)
 	}
+	if u.Endpoint != nil {
+		sets = append(sets, "endpoint = ?")
+		args = append(args, *u.Endpoint)
+	}
+	if u.PersistentKeepalive != nil {
+		sets = append(sets, "persistent_keepalive = ?")
+		args = append(args, *u.PersistentKeepalive) // *int or nil → NULL
+	}
+	if u.ClientDNS != nil {
+		sets = append(sets, "client_dns = ?")
+		args = append(args, *u.ClientDNS)
+	}
+	if u.ClientMTU != nil {
+		sets = append(sets, "client_mtu = ?")
+		args = append(args, *u.ClientMTU) // *int or nil → NULL
+	}
 
 	if len(sets) == 0 {
 		return nil // nothing to update
@@ -153,12 +211,12 @@ func (db *DB) UpdatePeer(pubKey string, u *PeerUpdate) error {
 
 // UpsertPeerFromReconcile inserts a peer if not already present (INSERT OR IGNORE).
 // Used by the reconciler to track peers discovered in the kernel.
-// The enabled parameter controls whether the peer starts enabled or disabled.
-func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered, enabled bool) error {
+// endpoint and persistentKeepalive preserve the values observed in the kernel (Task 8b).
+func (db *DB) UpsertPeerFromReconcile(pubKey, friendlyName string, autoDiscovered, enabled bool, endpoint string, persistentKeepalive *int) error {
 	_, err := db.conn.Exec(`
-		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered, enabled)
-		VALUES (?, ?, ?, ?)
-	`, pubKey, friendlyName, autoDiscovered, enabled)
+		INSERT OR IGNORE INTO peers (public_key, friendly_name, auto_discovered, enabled, endpoint, persistent_keepalive)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, pubKey, friendlyName, autoDiscovered, enabled, endpoint, persistentKeepalive)
 	if err != nil {
 		return fmt.Errorf("upserting peer from reconcile: %w", err)
 	}
@@ -192,9 +250,10 @@ func (db *DB) CreatePeersBatch(peers []*Peer) ([]int64, error) {
 	ids := make([]int64, 0, len(peers))
 	for _, p := range peers {
 		result, err := tx.Exec(`
-			INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes)
+			INSERT INTO peers (public_key, friendly_name, allowed_ips, profile, enabled, auto_discovered, notes, endpoint, persistent_keepalive, client_dns, client_mtu)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, p.PublicKey, p.FriendlyName, p.AllowedIPs, p.Profile, p.Enabled, p.AutoDiscovered, p.Notes,
+			p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU)
 		if err != nil {
 			return nil, fmt.Errorf("inserting peer %s: %w", p.PublicKey, err)
 		}

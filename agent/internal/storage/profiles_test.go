@@ -393,3 +393,125 @@ func TestListProfiles_Empty(t *testing.T) {
 		t.Errorf("expected 0 profiles, got %d", len(profiles))
 	}
 }
+
+func TestCreateProfile_WithNewFields(t *testing.T) {
+	db := newTestDB(t)
+
+	pka := 30
+	mtu := 1400
+	p := &Profile{
+		Name:                "site-to-site",
+		AllowedIPs:          []string{"10.0.0.0/24"},
+		ExcludeIPs:          []string{},
+		Description:         "Site-to-site profile",
+		Endpoint:            "vpn.example.com:51820",
+		PersistentKeepalive: &pka,
+		ClientDNS:           "8.8.8.8,8.8.4.4",
+		ClientMTU:           &mtu,
+	}
+
+	err := db.CreateProfile(p)
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	got, err := db.GetProfile("site-to-site")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got.Endpoint != "vpn.example.com:51820" {
+		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "vpn.example.com:51820")
+	}
+	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 30 {
+		t.Errorf("PersistentKeepalive: got %v, want 30", got.PersistentKeepalive)
+	}
+	if got.ClientDNS != "8.8.8.8,8.8.4.4" {
+		t.Errorf("ClientDNS: got %q, want %q", got.ClientDNS, "8.8.8.8,8.8.4.4")
+	}
+	if got.ClientMTU == nil || *got.ClientMTU != 1400 {
+		t.Errorf("ClientMTU: got %v, want 1400", got.ClientMTU)
+	}
+}
+
+func TestUpdateProfile_WithNewFields(t *testing.T) {
+	db := newTestDB(t)
+
+	p := &Profile{
+		Name:       "update-profile",
+		AllowedIPs: []string{"0.0.0.0/0"},
+		ExcludeIPs: []string{},
+	}
+	err := db.CreateProfile(p)
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	pka := 45
+	mtu := 1320
+	updated := &Profile{
+		AllowedIPs:          []string{"0.0.0.0/0"},
+		ExcludeIPs:          []string{},
+		Description:         "Updated",
+		Endpoint:            "new.host:51820",
+		PersistentKeepalive: &pka,
+		ClientDNS:           "1.1.1.1",
+		ClientMTU:           &mtu,
+	}
+	err = db.UpdateProfile("update-profile", updated)
+	if err != nil {
+		t.Fatalf("UpdateProfile: %v", err)
+	}
+
+	got, err := db.GetProfile("update-profile")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got.Endpoint != "new.host:51820" {
+		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "new.host:51820")
+	}
+	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 45 {
+		t.Errorf("PKA: got %v, want 45", got.PersistentKeepalive)
+	}
+	if got.ClientDNS != "1.1.1.1" {
+		t.Errorf("ClientDNS: got %q, want %q", got.ClientDNS, "1.1.1.1")
+	}
+	if got.ClientMTU == nil || *got.ClientMTU != 1320 {
+		t.Errorf("ClientMTU: got %v, want 1320", got.ClientMTU)
+	}
+}
+
+func TestSeedProfiles_WithNewFields(t *testing.T) {
+	db := newTestDB(t)
+
+	pka := 25
+	seeds := []ProfileSeed{
+		{
+			Name:                "seeded",
+			AllowedIPs:          []string{"0.0.0.0/0"},
+			ExcludeIPs:          []string{},
+			Description:         "Seeded profile",
+			Endpoint:            "seed.host:51820",
+			PersistentKeepalive: &pka,
+			ClientDNS:           "9.9.9.9",
+		},
+	}
+
+	err := db.SeedProfiles(seeds)
+	if err != nil {
+		t.Fatalf("SeedProfiles: %v", err)
+	}
+
+	got, err := db.GetProfile("seeded")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if got.Endpoint != "seed.host:51820" {
+		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "seed.host:51820")
+	}
+	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 25 {
+		t.Errorf("PKA: got %v, want 25", got.PersistentKeepalive)
+	}
+	if got.ClientDNS != "9.9.9.9" {
+		t.Errorf("ClientDNS: got %q, want %q", got.ClientDNS, "9.9.9.9")
+	}
+}

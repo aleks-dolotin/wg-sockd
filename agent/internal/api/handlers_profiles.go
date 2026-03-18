@@ -83,11 +83,15 @@ func (h *Handlers) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := &storage.Profile{
-		Name:        req.Name,
-		AllowedIPs:  req.AllowedIPs,
-		ExcludeIPs:  excludeIPs,
-		Description: req.Description,
-		IsDefault:   false,
+		Name:                req.Name,
+		AllowedIPs:          req.AllowedIPs,
+		ExcludeIPs:          excludeIPs,
+		Description:         req.Description,
+		IsDefault:           false,
+		Endpoint:            req.Endpoint,
+		PersistentKeepalive: req.PersistentKeepalive,
+		ClientDNS:           req.ClientDNS,
+		ClientMTU:           req.ClientMTU,
 	}
 
 	if err := h.store.CreateProfile(p); err != nil {
@@ -132,9 +136,13 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Merge fields.
 	updated := &storage.Profile{
-		AllowedIPs:  existing.AllowedIPs,
-		ExcludeIPs:  existing.ExcludeIPs,
-		Description: existing.Description,
+		AllowedIPs:          existing.AllowedIPs,
+		ExcludeIPs:          existing.ExcludeIPs,
+		Description:         existing.Description,
+		Endpoint:            existing.Endpoint,
+		PersistentKeepalive: existing.PersistentKeepalive,
+		ClientDNS:           existing.ClientDNS,
+		ClientMTU:           existing.ClientMTU,
 	}
 
 	if req.AllowedIPs != nil {
@@ -145,6 +153,18 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Description != nil {
 		updated.Description = *req.Description
+	}
+	if req.Endpoint != nil {
+		updated.Endpoint = *req.Endpoint
+	}
+	if req.PersistentKeepalive != nil {
+		updated.PersistentKeepalive = *req.PersistentKeepalive
+	}
+	if req.ClientDNS != nil {
+		updated.ClientDNS = *req.ClientDNS
+	}
+	if req.ClientMTU != nil {
+		updated.ClientMTU = *req.ClientMTU
 	}
 
 	// Validate resulting CIDRs.
@@ -191,11 +211,15 @@ func (h *Handlers) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 // computing resolved_allowed_ips via the CIDR calculator.
 func profileToResponse(p storage.Profile) ProfileResponse {
 	resp := ProfileResponse{
-		Name:        p.Name,
-		AllowedIPs:  p.AllowedIPs,
-		ExcludeIPs:  p.ExcludeIPs,
-		Description: p.Description,
-		IsDefault:   p.IsDefault,
+		Name:                p.Name,
+		AllowedIPs:          p.AllowedIPs,
+		ExcludeIPs:          p.ExcludeIPs,
+		Description:         p.Description,
+		IsDefault:           p.IsDefault,
+		Endpoint:            p.Endpoint,
+		PersistentKeepalive: p.PersistentKeepalive,
+		ClientDNS:           p.ClientDNS,
+		ClientMTU:           p.ClientMTU,
 	}
 
 	if resp.AllowedIPs == nil {

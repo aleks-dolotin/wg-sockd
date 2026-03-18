@@ -117,6 +117,9 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		}
 
 		// Unknown peer: not in DB at all.
+		// Extract endpoint and PKA from kernel to preserve them in DB (Task 8b).
+		kernelEndpoint, kernelPKA := extractKernelPeerInfo(wgPeer)
+
 		if r.cfg.AutoApproveUnknown {
 			// Dev mode: keep unknown peer in kernel, register as enabled + auto_discovered.
 			log.Printf("WARN: unknown peer discovered and auto-approved: %s", pubKeyStr)
@@ -127,7 +130,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 			}
 			friendlyName := "unknown-" + shortKey
 
-			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, true); err != nil {
+			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, true, kernelEndpoint, kernelPKA); err != nil {
 				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
 			}
 		} else {
@@ -144,7 +147,8 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 			}
 			friendlyName := "unknown-" + shortKey
 
-			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, false); err != nil {
+			// Preserve endpoint/PKA even for disabled peers — admin can approve later.
+			if err := r.store.UpsertPeerFromReconcile(pubKeyStr, friendlyName, true, false, kernelEndpoint, kernelPKA); err != nil {
 				log.Printf("ERROR: failed to insert unknown peer %s: %v", pubKeyStr, err)
 			}
 		}
@@ -178,12 +182,28 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 			continue
 		}
 
-		err = r.wgClient.ConfigurePeers(r.cfg.Interface, []wireguard.PeerConfig{
-			{
-				PublicKey:  key,
-				AllowedIPs: allowedNets,
-			},
-		})
+		peerCfg := wireguard.PeerConfig{
+			PublicKey:  key,
+			AllowedIPs: allowedNets,
+		}
+
+		// Pass Endpoint from DB to kernel (best-effort DNS resolution).
+		if dbPeer.Endpoint != "" {
+			udpAddr, resolveErr := net.ResolveUDPAddr("udp", dbPeer.Endpoint)
+			if resolveErr != nil {
+				log.Printf("WARN: endpoint DNS resolution failed for peer %s (%q): %v — skipping endpoint this cycle", pubKeyStr, dbPeer.Endpoint, resolveErr)
+			} else {
+				peerCfg.Endpoint = udpAddr
+			}
+		}
+
+		// Pass PersistentKeepalive from DB to kernel.
+		if dbPeer.PersistentKeepalive != nil {
+			d := time.Duration(*dbPeer.PersistentKeepalive) * time.Second
+			peerCfg.PersistentKeepalive = &d
+		}
+
+		err = r.wgClient.ConfigurePeers(r.cfg.Interface, []wireguard.PeerConfig{peerCfg})
 		if err != nil {
 			log.Printf("ERROR: failed to re-add peer %s: %v", pubKeyStr, err)
 		}
@@ -210,14 +230,34 @@ func (r *Reconciler) rewriteConf() error {
 		if !p.Enabled {
 			continue
 		}
-		peers = append(peers, confwriter.PeerConf{
+		pc := confwriter.PeerConf{
 			PublicKey:    p.PublicKey,
 			AllowedIPs:   p.AllowedIPs,
 			FriendlyName: p.FriendlyName,
 			CreatedAt:    p.CreatedAt,
 			Notes:        p.Notes,
-		})
+			Endpoint:     p.Endpoint,
+		}
+		if p.PersistentKeepalive != nil {
+			pc.PersistentKeepalive = *p.PersistentKeepalive
+		}
+		peers = append(peers, pc)
 	}
 
 	return r.confWriter.WriteConf(r.cfg.ConfPath, peers)
 }
+
+// extractKernelPeerInfo extracts endpoint and persistentKeepalive from a kernel peer.
+// Used when adopting unknown peers so their connection settings are preserved in DB.
+// PKA of 0 is stored as nil (inherit from profile/global defaults).
+func extractKernelPeerInfo(p wireguard.Peer) (endpoint string, pka *int) {
+	if p.Endpoint != nil {
+		endpoint = p.Endpoint.String()
+	}
+	if p.PersistentKeepalive > 0 {
+		v := int(p.PersistentKeepalive.Seconds())
+		pka = &v
+	}
+	return endpoint, pka
+}
+

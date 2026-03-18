@@ -88,22 +88,24 @@ func deviceFromWgctrl(dev *wgtypes.Device) *Device {
 // peerFromWgctrl converts a wgctrl Peer to a project Peer.
 func peerFromWgctrl(p wgtypes.Peer) Peer {
 	return Peer{
-		PublicKey:     p.PublicKey,
-		Endpoint:      p.Endpoint,
-		AllowedIPs:    p.AllowedIPs,
-		LastHandshake: p.LastHandshakeTime,
-		ReceiveBytes:  p.ReceiveBytes,
-		TransmitBytes: p.TransmitBytes,
+		PublicKey:           p.PublicKey,
+		Endpoint:            p.Endpoint,
+		AllowedIPs:          p.AllowedIPs,
+		LastHandshake:       p.LastHandshakeTime,
+		ReceiveBytes:        p.ReceiveBytes,
+		TransmitBytes:       p.TransmitBytes,
+		PersistentKeepalive: p.PersistentKeepaliveInterval,
 	}
 }
 
 // peerConfigToWgctrl converts a project PeerConfig to a wgctrl PeerConfig.
 func peerConfigToWgctrl(pc PeerConfig) wgtypes.PeerConfig {
 	return wgtypes.PeerConfig{
-		PublicKey:         pc.PublicKey,
-		Endpoint:          pc.Endpoint,
-		AllowedIPs:        pc.AllowedIPs,
-		Remove:            pc.Remove,
-		ReplaceAllowedIPs: pc.ReplaceAllowedIPs,
+		PublicKey:                   pc.PublicKey,
+		Endpoint:                    pc.Endpoint,
+		AllowedIPs:                  pc.AllowedIPs,
+		Remove:                      pc.Remove,
+		ReplaceAllowedIPs:           pc.ReplaceAllowedIPs,
+		PersistentKeepaliveInterval: pc.PersistentKeepalive,
 	}
 }

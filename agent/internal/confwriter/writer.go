@@ -26,12 +26,14 @@ type ConfPeer struct {
 
 // PeerConf describes a peer to be written to the config file.
 type PeerConf struct {
-	PublicKey    string
-	AllowedIPs  string
-	PresharedKey string // optional, empty = omit
-	FriendlyName string
-	CreatedAt   time.Time
-	Notes       string
+	PublicKey           string
+	AllowedIPs          string
+	PresharedKey        string // optional, empty = omit
+	FriendlyName        string
+	CreatedAt           time.Time
+	Notes               string
+	Endpoint            string // server wg0.conf: peer's endpoint (empty = omit)
+	PersistentKeepalive int    // server wg0.conf: 0 = omit, >0 = write
 }
 
 // PeerMeta holds metadata extracted from wg-sockd comment lines.
@@ -184,6 +186,12 @@ func WriteConf(path string, peers []PeerConf) error {
 		fmt.Fprintf(&buf, "AllowedIPs = %s\n", p.AllowedIPs)
 		if p.PresharedKey != "" {
 			fmt.Fprintf(&buf, "PresharedKey = %s\n", p.PresharedKey)
+		}
+		if p.Endpoint != "" {
+			fmt.Fprintf(&buf, "Endpoint = %s\n", p.Endpoint)
+		}
+		if p.PersistentKeepalive > 0 {
+			fmt.Fprintf(&buf, "PersistentKeepalive = %d\n", p.PersistentKeepalive)
 		}
 	}
 

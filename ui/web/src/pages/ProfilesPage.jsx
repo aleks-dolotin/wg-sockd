@@ -34,7 +34,7 @@ export default function ProfilesPage() {
   const { data: profiles, isLoading, error } = useProfiles()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(null)
-  const [formData, setFormData] = useState({ name: '', allowed_ips: '', exclude_ips: '', description: '' })
+  const [formData, setFormData] = useState({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '' })
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteError, setDeleteError] = useState(null)
 
@@ -45,6 +45,10 @@ export default function ProfilesPage() {
         allowed_ips: data.allowed_ips.split(',').map(s => s.trim()).filter(Boolean),
         exclude_ips: data.exclude_ips ? data.exclude_ips.split(',').map(s => s.trim()).filter(Boolean) : [],
       }
+      if (data.persistent_keepalive !== '') payload.persistent_keepalive = parseInt(data.persistent_keepalive, 10)
+      else delete payload.persistent_keepalive
+      if (data.client_mtu !== '') payload.client_mtu = parseInt(data.client_mtu, 10)
+      else delete payload.client_mtu
       return editing === 'new' ? createProfile(payload) : updateProfile(editing.name, payload)
     },
     onSuccess: () => {
@@ -67,7 +71,7 @@ export default function ProfilesPage() {
   })
 
   function openNew() {
-    setFormData({ name: '', allowed_ips: '', exclude_ips: '', description: '' })
+    setFormData({ name: '', allowed_ips: '', exclude_ips: '', description: '', endpoint: '', persistent_keepalive: '', client_dns: '', client_mtu: '' })
     setEditing('new')
   }
 
@@ -77,6 +81,10 @@ export default function ProfilesPage() {
       allowed_ips: (p.allowed_ips || []).join(', '),
       exclude_ips: (p.exclude_ips || []).join(', '),
       description: p.description || '',
+      endpoint: p.endpoint || '',
+      persistent_keepalive: p.persistent_keepalive != null ? String(p.persistent_keepalive) : '',
+      client_dns: p.client_dns || '',
+      client_mtu: p.client_mtu != null ? String(p.client_mtu) : '',
     })
     setEditing(p)
   }
@@ -150,6 +158,18 @@ export default function ProfilesPage() {
             <div><label className="text-sm font-medium">Description</label>
               <Input value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Routes all traffic through VPN" /></div>
+            <div><label className="text-sm font-medium">Default Endpoint</label>
+              <Input value={formData.endpoint} onChange={e => setFormData({ ...formData, endpoint: e.target.value })}
+                placeholder="host:port (pre-filled for new peers)" /></div>
+            <div><label className="text-sm font-medium">Default PersistentKeepalive</label>
+              <Input type="number" min="0" max="65535" value={formData.persistent_keepalive} onChange={e => setFormData({ ...formData, persistent_keepalive: e.target.value })}
+                placeholder="empty = inherit from global" /></div>
+            <div><label className="text-sm font-medium">Default Client DNS</label>
+              <Input value={formData.client_dns} onChange={e => setFormData({ ...formData, client_dns: e.target.value })}
+                placeholder="1.1.1.1, 8.8.8.8 (for client download conf)" /></div>
+            <div><label className="text-sm font-medium">Default Client MTU</label>
+              <Input type="number" min="0" max="9000" value={formData.client_mtu} onChange={e => setFormData({ ...formData, client_mtu: e.target.value })}
+                placeholder="empty = inherit from global" /></div>
             {saveMut.error && <Alert variant="destructive"><AlertDescription>{saveMut.error.message}</AlertDescription></Alert>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
