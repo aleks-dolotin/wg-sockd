@@ -188,7 +188,7 @@ Then open `http://localhost:8080`.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.7.0"
+  tag: "0.8.0"
 
 nodeName: my-wg-node
 

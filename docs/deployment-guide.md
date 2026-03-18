@@ -145,7 +145,7 @@ curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/i
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.7.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.8.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -162,7 +162,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.7.0"
+  tag: "0.8.0"
 
 nodeName: my-wg-node
 
