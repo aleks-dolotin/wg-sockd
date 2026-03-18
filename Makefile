@@ -156,12 +156,12 @@ bump-version:
 		-e "s/^appVersion: \"$$OLD\"$$/appVersion: \"$$NEW\"/" \
 		chart/Chart.yaml && rm -f chart/Chart.yaml.bak; \
 	sed -i.bak \
-		-e "s/--version $$OLD/--version $$NEW/g" \
-		-e "s/tag: \"$$OLD\"/tag: \"$$NEW\"/g" \
+		-e "s/--version [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/--version $$NEW/g" \
+		-e "s/tag: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/tag: \"$$NEW\"/g" \
 		docs/deployment-guide.md && rm -f docs/deployment-guide.md.bak; \
 	sed -i.bak \
-		-e "s/--version $$OLD/--version $$NEW/g" \
-		-e "s/tag: \"$$OLD\"/tag: \"$$NEW\"/g" \
+		-e "s/--version [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/--version $$NEW/g" \
+		-e "s/tag: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/tag: \"$$NEW\"/g" \
 		README.md && rm -f README.md.bak; \
 	echo "Done. Review changes: git diff"
 
