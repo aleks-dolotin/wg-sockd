@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Pre-push hook: requires explicit confirmation before pushing.
+# Prevents accidental pushes of sensitive data.
+# Install with: cp scripts/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+set -e
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# --- Check for sensitive patterns in staged diff ---
+REMOTE="$1"
+URL="$2"
+
+echo ""
+echo -e "${BOLD}🔒 Pre-push check for: ${URL}${NC}"
+echo ""
+
+# Scan commits being pushed for sensitive content
+SENSITIVE_PATTERNS=(
+    "PrivateKey\s*="
+    "BEGIN PRIVATE KEY"
+    "BEGIN RSA PRIVATE KEY"
+    "BEGIN OPENSSH PRIVATE KEY"
+    "ssh-rsa\s+AAAA"
+    "192\.168\.[0-9]+\.[0-9]+"
+    "10\.0\.[0-9]+\.[0-9]+"
+    "password\s*[:=]"
+)
+
+FOUND_SENSITIVE=0
+
+# Files to exclude from sensitive pattern scan (contain patterns as search strings)
+EXCLUDE_FILES="scripts/pre-push"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip deletes
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # Determine range
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch — check all commits
+        RANGE="$local_sha"
+    else
+        RANGE="${remote_sha}..${local_sha}"
+    fi
+
+    for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+        MATCHES=$(git diff "$RANGE" -- . ':!scripts/pre-push' 2>/dev/null | grep -iE "^\+.*${pattern}" | head -5 || true)
+        if [ -n "$MATCHES" ]; then
+            if [ "$FOUND_SENSITIVE" -eq 0 ]; then
+                echo -e "${RED}⚠️  SENSITIVE CONTENT DETECTED in commits being pushed:${NC}"
+                echo ""
+            fi
+            FOUND_SENSITIVE=1
+            echo -e "  ${YELLOW}Pattern: ${pattern}${NC}"
+            echo "$MATCHES" | while IFS= read -r line; do
+                echo -e "    ${RED}${line}${NC}"
+            done
+            echo ""
+        fi
+    done
+done
+
+if [ "$FOUND_SENSITIVE" -ne 0 ]; then
+    echo -e "${RED}${BOLD}❌ Push BLOCKED — sensitive content found.${NC}"
+    echo ""
+    echo "  Review the content above. If you're sure it's safe:"
+    echo -e "  ${BOLD}git push --no-verify${NC}"
+    echo ""
+    exit 1
+fi
+
+# --- Always require confirmation ---
+echo -e "${GREEN}✓ No sensitive patterns detected${NC}"
+echo ""
+
+# Check if terminal is available (git hooks receive stdin via pipe, so check /dev/tty)
+if [ -e /dev/tty ]; then
+    echo -e "${BOLD}Pushing to: ${URL}${NC}"
+    echo -n "Confirm push? [y/N] " > /dev/tty
+    read -r answer < /dev/tty
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+        echo -e "${RED}Push cancelled.${NC}"
+        exit 1
+    fi
+else
+    # No terminal (CI, automated scripts) — block by default
+    echo -e "${RED}❌ Push blocked — no terminal available for confirmation.${NC}"
+    echo "  Use: git push --no-verify"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Push approved${NC}"

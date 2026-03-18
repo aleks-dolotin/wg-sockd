@@ -106,11 +106,13 @@ lint:
 lint-all: lint
 	cd ui/web && npx eslint .
 
-# Install git pre-commit hook
+# Install git hooks (pre-commit + pre-push)
 setup-hooks:
 	@cp scripts/pre-commit .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
-	@echo "Pre-commit hook installed"
+	@cp scripts/pre-push .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "Git hooks installed (pre-commit + pre-push)"
 
 # Local development mode — API-only, no WireGuard needed (macOS degraded OK).
 # Uses ./tmp/ for isolated dev config and data.
