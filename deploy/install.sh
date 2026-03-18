@@ -39,14 +39,19 @@ fatal() { error "$@"; exit 1; }
 
 # --- Task 5.1: Parse flags ---
 AGENT_ONLY=false
+NO_START=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --agent-only)
             AGENT_ONLY=true
             shift
             ;;
+        --no-start)
+            NO_START=true
+            shift
+            ;;
         *)
-            fatal "Unknown option: $1 (supported: --agent-only)"
+            fatal "Unknown option: $1 (supported: --agent-only, --no-start)"
             ;;
     esac
 done
@@ -481,16 +486,21 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable "$SERVICE_NAME"
-info "Service enabled: $SERVICE_NAME"
 
 # --- Start or restart service ---
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    info "Service already running — restarting..."
-    systemctl restart "$SERVICE_NAME"
+if [ "$NO_START" = true ]; then
+    info "Skipping service start (--no-start). Service is installed but not enabled or started."
+    info "To start manually: systemctl enable --now $SERVICE_NAME"
 else
-    info "Starting service..."
-    systemctl start "$SERVICE_NAME"
+    systemctl enable "$SERVICE_NAME"
+    info "Service enabled: $SERVICE_NAME"
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        info "Service already running — restarting..."
+        systemctl restart "$SERVICE_NAME"
+    else
+        info "Starting service..."
+        systemctl start "$SERVICE_NAME"
+    fi
 fi
 
 # --- Task 5.11: kubectl label block removed (AC-31) ---
@@ -510,6 +520,11 @@ echo "  Data:    ${DATA_DIR}/"
 echo "  Socket:  ${RUN_DIR}/${BINARY_NAME}.sock"
 echo "  Service: systemctl status ${SERVICE_NAME}"
 echo ""
+if [ "$NO_START" = true ]; then
+    echo -e "  ${YELLOW}⚠️  Service was NOT started (--no-start). Start manually when ready:${NC}"
+    echo "    systemctl enable --now ${SERVICE_NAME}"
+    echo ""
+fi
 echo "  Quick test:"
 echo "    sudo curl --unix-socket ${RUN_DIR}/${BINARY_NAME}.sock http://localhost/api/health"
 echo ""

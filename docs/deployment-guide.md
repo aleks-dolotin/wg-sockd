@@ -23,6 +23,22 @@ Agent-only mode — lean binary (no UI) + CTL, for K8s / headless:
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
+To install without starting the service automatically (e.g. to review config first):
+
+```bash
+# Full binary, no auto-start
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --no-start
+
+# Agent-only, no auto-start
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only --no-start
+```
+
+Start manually when ready:
+
+```bash
+sudo systemctl enable --now wg-sockd
+```
+
 The install script:
 1. Creates system user `wg-sockd` with GID 5000
 2. Installs binary to `/usr/local/bin/wg-sockd`
@@ -140,12 +156,24 @@ kubectl get nodes --show-labels | grep wg-sockd
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
+To install without auto-start (e.g. to configure first):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only --no-start
+```
+
+Then review `/etc/wg-sockd/config.yaml` and start when ready:
+
+```bash
+sudo systemctl enable --now wg-sockd
+```
+
 ### Install UI Proxy
 
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.8.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.9.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -162,7 +190,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.8.0"
+  tag: "0.9.0"
 
 nodeName: my-wg-node
 

@@ -73,6 +73,18 @@ curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/i
 
 This creates the `wg-sockd` user (GID 5000), installs the full binary (with embedded UI) + CTL, sets up systemd, and starts the service. The installer will prompt for UI binding address interactively or default to `0.0.0.0:8080` when piped.
 
+To install without starting the service automatically:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --no-start
+```
+
+Then start when ready:
+
+```bash
+sudo systemctl enable --now wg-sockd
+```
+
 ### 2. Open Browser
 
 ```
@@ -165,12 +177,18 @@ SSH into the node and run the installer:
 curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only
 ```
 
+To install without starting the service automatically, combine both flags:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/aleks-dolotin/wg-sockd/main/deploy/install.sh | sudo bash -s -- --agent-only --no-start
+```
+
 ### 3. Install UI via Helm
 
 Install the chart directly from the registry — no need to clone the repository:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.8.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.9.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -188,7 +206,7 @@ Then open `http://localhost:8080`.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.8.0"
+  tag: "0.9.0"
 
 nodeName: my-wg-node
 
