@@ -426,13 +426,19 @@ func peersAdd(client *http.Client, args []string) error {
 	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive interval in seconds (0=off)")
 	clientDNS := fs.String("client-dns", "", "client DNS servers (comma-separated)")
 	clientMTU := fs.Int("client-mtu", -1, "client MTU value")
-	clientAddress := fs.String("client-address", "", "client VPN address (CIDR, e.g. 10.0.0.2/32)")
+	clientAddress := fs.String("client-address", "", "client VPN address (CIDR, e.g. 10.0.0.2/32, required)")
 	presharedKey := fs.String("preshared-key", "", `preshared key: "auto" to generate, base64 for explicit, omit for none`)
-	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for split-tunnel (empty = full-tunnel)")
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for the download .conf (required)")
 	_ = fs.Parse(args)
 
 	if *name == "" {
 		return fmt.Errorf("--name is required")
+	}
+	if *clientAllowedIPs == "" {
+		return fmt.Errorf("--client-allowed-ips is required")
+	}
+	if *clientAddress == "" {
+		return fmt.Errorf("--client-address is required")
 	}
 
 	req := CreatePeerRequest{FriendlyName: *name}
@@ -639,6 +645,7 @@ func peersApprove(client *http.Client, args []string) error {
 	clientDNS := fs.String("client-dns", "", "client DNS servers")
 	clientMTU := fs.Int("client-mtu", -1, "client MTU value")
 	pka := fs.Int("persistent-keepalive", -1, "persistent keepalive (0=off)")
+	clientAllowedIPs := fs.String("client-allowed-ips", "", "client AllowedIPs for the download .conf (required)")
 	_ = fs.Parse(args)
 
 	remaining := fs.Args()
@@ -653,6 +660,9 @@ func peersApprove(client *http.Client, args []string) error {
 
 	if *clientAddress == "" {
 		return fmt.Errorf("--client-address is required for approve")
+	}
+	if *clientAllowedIPs == "" {
+		return fmt.Errorf("--client-allowed-ips is required for approve")
 	}
 
 	resp, err := doRequest(client, http.MethodGet, "/api/peers", nil)
@@ -692,7 +702,8 @@ func peersApprove(client *http.Client, args []string) error {
 
 	// Build approve request body.
 	approveReq := map[string]interface{}{
-		"client_address": *clientAddress,
+		"client_address":    *clientAddress,
+		"client_allowed_ips": *clientAllowedIPs,
 	}
 	if *name != "" {
 		approveReq["friendly_name"] = *name

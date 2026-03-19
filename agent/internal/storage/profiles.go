@@ -16,7 +16,6 @@ type Profile struct {
 	Description         string
 	IsDefault           bool
 	CreatedAt           time.Time
-	Endpoint            string // default endpoint for new peers in this profile
 	PersistentKeepalive *int   // default server-side PKA; nil = inherit from global
 	ClientDNS           string // default client DNS; empty = inherit from global
 	ClientMTU           *int   // default client MTU; nil = inherit from global
@@ -30,7 +29,6 @@ type ProfileSeed struct {
 	AllowedIPs          []string `yaml:"allowed_ips"`
 	ExcludeIPs          []string `yaml:"exclude_ips"`
 	Description         string   `yaml:"description"`
-	Endpoint            string   `yaml:"endpoint"`
 	PersistentKeepalive *int     `yaml:"persistent_keepalive"`
 	ClientDNS           string   `yaml:"client_dns"`
 	ClientMTU           *int     `yaml:"client_mtu"`
@@ -42,7 +40,7 @@ type ProfileSeed struct {
 func (db *DB) ListProfiles() ([]Profile, error) {
 	rows, err := db.conn.Query(`
 		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at,
-		       endpoint, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key
+		       persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key
 		FROM profiles
 		ORDER BY name ASC
 	`)
@@ -71,11 +69,11 @@ func (db *DB) GetProfile(name string) (*Profile, error) {
 	var mtu sql.NullInt64
 	err := db.conn.QueryRow(`
 		SELECT name, allowed_ips, exclude_ips, description, is_default, created_at,
-		       endpoint, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key
+		       persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key
 		FROM profiles
 		WHERE name = ?
 	`, name).Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt,
-		&p.Endpoint, &pka, &p.ClientDNS, &mtu, &p.ClientAllowedIPs, &p.UsePresharedKey)
+		&pka, &p.ClientDNS, &mtu, &p.ClientAllowedIPs, &p.UsePresharedKey)
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +106,10 @@ func (db *DB) CreateProfile(p *Profile) error {
 	}
 
 	_, err = db.conn.Exec(`
-		INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, endpoint, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, p.Name, string(allowedJSON), string(excludeJSON), p.Description, p.IsDefault,
-		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU, p.ClientAllowedIPs, p.UsePresharedKey)
+		p.PersistentKeepalive, p.ClientDNS, p.ClientMTU, p.ClientAllowedIPs, p.UsePresharedKey)
 	if err != nil {
 		return fmt.Errorf("creating profile: %w", err)
 	}
@@ -132,11 +130,11 @@ func (db *DB) UpdateProfile(name string, p *Profile) error {
 
 	result, err := db.conn.Exec(`
 		UPDATE profiles SET allowed_ips = ?, exclude_ips = ?, description = ?,
-		       endpoint = ?, persistent_keepalive = ?, client_dns = ?, client_mtu = ?,
+		       persistent_keepalive = ?, client_dns = ?, client_mtu = ?,
 		       client_allowed_ips = ?, use_preshared_key = ?
 		WHERE name = ?
 	`, string(allowedJSON), string(excludeJSON), p.Description,
-		p.Endpoint, p.PersistentKeepalive, p.ClientDNS, p.ClientMTU,
+		p.PersistentKeepalive, p.ClientDNS, p.ClientMTU,
 		p.ClientAllowedIPs, p.UsePresharedKey, name)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
@@ -215,10 +213,10 @@ func (db *DB) SeedProfiles(seeds []ProfileSeed) error {
 		}
 
 		_, err = db.conn.Exec(`
-			INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, endpoint, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key)
-			VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+			INSERT INTO profiles (name, allowed_ips, exclude_ips, description, is_default, persistent_keepalive, client_dns, client_mtu, client_allowed_ips, use_preshared_key)
+			VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
 		`, s.Name, string(allowedJSON), string(excludeJSON), s.Description,
-			s.Endpoint, s.PersistentKeepalive, s.ClientDNS, s.ClientMTU, s.ClientAllowedIPs, s.UsePresharedKey)
+			s.PersistentKeepalive, s.ClientDNS, s.ClientMTU, s.ClientAllowedIPs, s.UsePresharedKey)
 		if err != nil {
 			return fmt.Errorf("seeding profile %q: %w", s.Name, err)
 		}
@@ -239,7 +237,7 @@ func scanProfile(rows *sql.Rows) (Profile, error) {
 	var pka sql.NullInt64
 	var mtu sql.NullInt64
 	if err := rows.Scan(&p.Name, &allowedJSON, &excludeJSON, &p.Description, &p.IsDefault, &p.CreatedAt,
-		&p.Endpoint, &pka, &p.ClientDNS, &mtu, &p.ClientAllowedIPs, &p.UsePresharedKey); err != nil {
+		&pka, &p.ClientDNS, &mtu, &p.ClientAllowedIPs, &p.UsePresharedKey); err != nil {
 		return Profile{}, fmt.Errorf("scanning profile: %w", err)
 	}
 	if err := json.Unmarshal([]byte(allowedJSON), &p.AllowedIPs); err != nil {

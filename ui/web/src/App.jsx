@@ -8,6 +8,8 @@ import PeersPage from '@/pages/PeersPage'
 import PeerNewPage from '@/pages/PeerNewPage'
 import PeerDetailPage from '@/pages/PeerDetailPage'
 import ProfilesPage from '@/pages/ProfilesPage'
+import ProfileNewPage from '@/pages/ProfileNewPage'
+import ProfileDetailPage from '@/pages/ProfileDetailPage'
 import SettingsPage from '@/pages/SettingsPage'
 import Dashboard from '@/pages/Dashboard'
 
@@ -37,6 +39,8 @@ export default function App() {
                 <Route path="/peers/new" element={<PeerNewPage />} />
                 <Route path="/peers/:id" element={<PeerDetailPage />} />
                 <Route path="/settings/profiles" element={<ProfilesPage />} />
+                <Route path="/settings/profiles/new" element={<ProfileNewPage />} />
+                <Route path="/settings/profiles/:name" element={<ProfileDetailPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

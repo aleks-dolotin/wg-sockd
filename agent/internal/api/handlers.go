@@ -81,13 +81,6 @@ func (h *Handlers) ListPeers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Pre-load all profiles into map for N+1 prevention.
-	profiles, _ := h.store.ListProfiles()
-	profileMap := make(map[string]*storage.Profile, len(profiles))
-	for i := range profiles {
-		profileMap[profiles[i].Name] = &profiles[i]
-	}
-
 	responses := make([]PeerResponse, 0, len(dbPeers))
 	for _, dbp := range dbPeers {
 		resp := peerToResponse(dbp)
@@ -105,9 +98,6 @@ func (h *Handlers) ListPeers(w http.ResponseWriter, r *http.Request) {
 				resp.TransferTx = wgp.TransmitBytes
 			}
 		}
-
-		// Resolve client conf cascade.
-		h.resolveClientConfForPeer(&resp, dbp, profileMap)
 
 		responses = append(responses, resp)
 	}
@@ -209,24 +199,32 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate client_address CIDR format if provided.
-	if req.ClientAddress != "" {
-		if _, _, err := net.ParseCIDR(req.ClientAddress); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error",
-				fmt.Sprintf("invalid client_address CIDR format %q", req.ClientAddress))
-			return
-		}
-		// Check uniqueness.
-		taken, err := h.store.IsClientAddressTaken(req.ClientAddress, "")
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "db_error", err.Error())
-			return
-		}
-		if taken {
-			writeError(w, http.StatusConflict, "conflict",
-				fmt.Sprintf("client_address %q is already assigned to another peer", req.ClientAddress))
-			return
-		}
+	// WYSIWYG: client_allowed_ips and client_address are required at creation.
+	if req.ClientAllowedIPs == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "client_allowed_ips is required")
+		return
+	}
+	if req.ClientAddress == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "client_address is required")
+		return
+	}
+
+	// Validate client_address CIDR format.
+	if _, _, err := net.ParseCIDR(req.ClientAddress); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			fmt.Sprintf("invalid client_address CIDR format %q", req.ClientAddress))
+		return
+	}
+	// Check uniqueness.
+	taken, err := h.store.IsClientAddressTaken(req.ClientAddress, "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+	if taken {
+		writeError(w, http.StatusConflict, "conflict",
+			fmt.Sprintf("client_address %q is already assigned to another peer", req.ClientAddress))
+		return
 	}
 
 	// Generate keypair.
@@ -236,17 +234,11 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve PSK: profile flag OR request field.
+	// Resolve PSK from request field only. Profile pre-fills the UI checkbox,
+	// but the backend respects only the explicit client request.
 	var pskStr string
 	var pskKey *wgtypes.Key
 	shouldGeneratePSK := req.PresharedKey == "auto"
-	if !shouldGeneratePSK && hasProfile {
-		// Check profile's use_preshared_key flag.
-		profile, profErr := h.store.GetProfile(*req.Profile)
-		if profErr == nil && profile.UsePresharedKey {
-			shouldGeneratePSK = true
-		}
-	}
 	if shouldGeneratePSK {
 		generated, genErr := h.wgClient.GeneratePresharedKey()
 		if genErr != nil {
@@ -355,9 +347,6 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		ClientAllowedIPs:    req.ClientAllowedIPs,
 	}
 
-	// Resolve client conf cascade for the response.
-	h.resolveClientConfForPeer(&resp, *dbPeer, nil)
-
 	// Build full client conf with private key (one-time — never stored).
 	dev, devErr := h.wgClient.GetDevice(h.cfg.Interface)
 	serverPubKey := ""
@@ -431,6 +420,29 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("peer[%d]: %v", i, err))
 			return
 		}
+		// WYSIWYG: client_allowed_ips and client_address are required at creation.
+		if p.ClientAllowedIPs == "" {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("peer[%d]: client_allowed_ips is required", i))
+			return
+		}
+		// Validate client_allowed_ips CIDR format.
+		if p.ClientAllowedIPs != "" {
+			for _, ip := range strings.Split(p.ClientAllowedIPs, ",") {
+				ip = strings.TrimSpace(ip)
+				if _, _, err := net.ParseCIDR(ip); err != nil {
+					writeError(w, http.StatusBadRequest, "validation_error",
+						fmt.Sprintf("peer[%d]: invalid client_allowed_ips CIDR format %q", i, ip))
+					return
+				}
+			}
+		}
+
+		if p.ClientAddress == "" {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				fmt.Sprintf("peer[%d]: client_address is required", i))
+			return
+		}
 	}
 
 	// Resolve profiles and generate keypairs.
@@ -480,16 +492,10 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Resolve PSK per peer.
+		// Resolve PSK per peer — explicit request only.
 		var pskStr string
 		var pskKey *wgtypes.Key
 		shouldGenPSK := p.PresharedKey == "auto"
-		if !shouldGenPSK && hasProfile {
-			profile, profErr := h.store.GetProfile(*p.Profile)
-			if profErr == nil && profile.UsePresharedKey {
-				shouldGenPSK = true
-			}
-		}
 		if shouldGenPSK {
 			generated, genErr := h.wgClient.GeneratePresharedKey()
 			if genErr != nil {
@@ -668,9 +674,6 @@ func (h *Handlers) GetPeer(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	// Resolve client conf cascade.
-	h.resolveClientConfForPeer(&resp, *peer, nil)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -929,9 +932,6 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Resolve client conf cascade.
-	h.resolveClientConfForPeer(&resp, *updated, nil)
-
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1181,6 +1181,12 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "client_address is required")
 		return
 	}
+
+	// WYSIWYG: client_allowed_ips is required for approve.
+	if req.ClientAllowedIPs == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "client_allowed_ips is required")
+		return
+	}
 	if _, _, err := net.ParseCIDR(req.ClientAddress); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error",
 			fmt.Sprintf("invalid client_address CIDR format %q", req.ClientAddress))
@@ -1277,6 +1283,9 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 	if req.PersistentKeepalive != nil {
 		dbUpdate.PersistentKeepalive = &req.PersistentKeepalive
 	}
+	if req.ClientAllowedIPs != "" {
+		dbUpdate.ClientAllowedIPs = &req.ClientAllowedIPs
+	}
 
 	// Update DB: apply all fields + enabled=true, auto_discovered=false.
 	if err := h.store.UpdatePeer(peer.PublicKey, dbUpdate); err != nil {
@@ -1357,9 +1366,6 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	// Resolve client conf cascade.
-	h.resolveClientConfForPeer(&resp, *updated, nil)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1491,54 +1497,32 @@ func (h *Handlers) serverEndpoint(listenPort int) string {
 	return fmt.Sprintf("<server_endpoint>:%d", listenPort)
 }
 
-// buildClientConf generates a WireGuard client .conf string for a peer,
-// using the 4-level cascade for DNS, MTU, PersistentKeepalive, ClientAllowedIPs.
+// buildClientConf generates a WireGuard client .conf string for a peer.
+// WYSIWYG: reads peer fields directly — no cascade, no profile/global lookups.
 // privateKey is empty for template-only confs (GetPeerConf).
 func (h *Handlers) buildClientConf(peer *storage.Peer, privateKey string, serverPubKey string, serverPort int) string {
-	// Resolve cascade.
-	peerVals := confwriter.ClientConfPeerValues{
-		DNS:              peer.ClientDNS,
-		MTU:              peer.ClientMTU,
-		PKA:              peer.PersistentKeepalive,
-		ClientAllowedIPs: peer.ClientAllowedIPs,
-	}
-	var profileVals *confwriter.ClientConfProfileValues
-	if peer.Profile != nil && *peer.Profile != "" {
-		profile, err := h.store.GetProfile(*peer.Profile)
-		if err != nil {
-			log.Printf("WARN: could not load profile %q for client conf: %v", *peer.Profile, err)
-		} else {
-			profileVals = &confwriter.ClientConfProfileValues{
-				DNS:              profile.ClientDNS,
-				MTU:              profile.ClientMTU,
-				PKA:              profile.PersistentKeepalive,
-				ClientAllowedIPs: profile.ClientAllowedIPs,
-			}
-		}
-	}
-	defaults := confwriter.ClientConfDefaults{
-		DNS:              h.cfg.PeerDefaults.ClientDNS,
-		MTU:              h.cfg.PeerDefaults.ClientMTU,
-		PKA:              h.cfg.PeerDefaults.ClientPersistentKeepalive,
-		ClientAllowedIPs: h.cfg.PeerDefaults.ClientAllowedIPs,
-	}
-	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
-
-	// Resolve client address: explicit client_address → /32 fallback → error.
-	clientAddr, addrErr := confwriter.ResolveClientAddress(peer.ClientAddress, peer.AllowedIPs)
-	if addrErr != nil {
-		log.Printf("WARN: could not resolve client address for peer %s: %v", peer.PublicKey, addrErr)
-		clientAddr = peer.AllowedIPs // best-effort fallback for conf generation
+	// client_address is required — use directly.
+	clientAddr := peer.ClientAddress
+	if clientAddr == "" {
+		log.Printf("WARN: peer %s has no client_address — using AllowedIPs as fallback", peer.PublicKey)
+		clientAddr = peer.AllowedIPs
 	}
 
 	b := confwriter.NewClientConfBuilder()
 	b.SetAddress(clientAddr).
 		SetServerPublicKey(serverPubKey).
 		SetServerEndpoint(h.serverEndpoint(serverPort)).
-		SetDNS(rc.DNS).
-		SetMTU(rc.MTU).
-		SetPersistentKeepalive(rc.PKA).
-		SetClientAllowedIPs(rc.ClientAllowedIPs)
+		SetDNS(peer.ClientDNS).
+		SetClientAllowedIPs(peer.ClientAllowedIPs)
+
+	// Handle *int fields: nil = skip, 0 = off (builder omits line).
+	if peer.ClientMTU != nil {
+		b.SetMTU(*peer.ClientMTU)
+	}
+	if peer.PersistentKeepalive != nil {
+		b.SetPersistentKeepalive(*peer.PersistentKeepalive)
+	}
+
 	if peer.PresharedKey != "" {
 		b.SetPresharedKey(peer.PresharedKey)
 	}
@@ -1634,54 +1618,3 @@ func peerToResponse(p storage.Peer) PeerResponse {
 	}
 }
 
-// resolveClientConfForPeer loads the peer's profile (if any), resolves the 4-level cascade,
-// and populates the Resolved* fields on the PeerResponse.
-// profileMap is optional — if provided, profiles are looked up from the map (N+1 prevention).
-// If profileMap is nil and peer has a profile, it will be loaded from DB.
-func (h *Handlers) resolveClientConfForPeer(resp *PeerResponse, peer storage.Peer, profileMap map[string]*storage.Profile) {
-	peerVals := confwriter.ClientConfPeerValues{
-		DNS:              peer.ClientDNS,
-		MTU:              peer.ClientMTU,
-		PKA:              peer.PersistentKeepalive,
-		ClientAllowedIPs: peer.ClientAllowedIPs,
-	}
-
-	var profileVals *confwriter.ClientConfProfileValues
-	if peer.Profile != nil && *peer.Profile != "" {
-		var profile *storage.Profile
-		if profileMap != nil {
-			profile = profileMap[*peer.Profile]
-		} else {
-			var err error
-			profile, err = h.store.GetProfile(*peer.Profile)
-			if err != nil {
-				log.Printf("WARN: could not load profile %q for peer %d: %v — using global defaults", *peer.Profile, peer.ID, err)
-			}
-		}
-		if profile != nil {
-			profileVals = &confwriter.ClientConfProfileValues{
-				DNS:              profile.ClientDNS,
-				MTU:              profile.ClientMTU,
-				PKA:              profile.PersistentKeepalive,
-				ClientAllowedIPs: profile.ClientAllowedIPs,
-			}
-		}
-	}
-
-	defaults := confwriter.ClientConfDefaults{
-		DNS:              h.cfg.PeerDefaults.ClientDNS,
-		MTU:              h.cfg.PeerDefaults.ClientMTU,
-		PKA:              h.cfg.PeerDefaults.ClientPersistentKeepalive,
-		ClientAllowedIPs: h.cfg.PeerDefaults.ClientAllowedIPs,
-	}
-
-	rc := confwriter.ResolveClientConf(peerVals, profileVals, defaults)
-	resp.ResolvedClientDNS = rc.DNS
-	resp.ResolvedClientDNSSource = rc.DNSSource
-	resp.ResolvedClientMTU = rc.MTU
-	resp.ResolvedClientMTUSource = rc.MTUSource
-	resp.ResolvedClientPKA = rc.PKA
-	resp.ResolvedClientPKASource = rc.PKASource
-	resp.ResolvedClientAllowedIPs = rc.ClientAllowedIPs
-	resp.ResolvedClientAllowedIPsSource = rc.ClientAllowedIPsSource
-}

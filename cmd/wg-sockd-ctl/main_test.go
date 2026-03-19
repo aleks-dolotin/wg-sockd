@@ -141,7 +141,7 @@ func TestPeersAdd(t *testing.T) {
 	defer cleanup()
 
 	client := newUnixClient(sock)
-	if err := peersAdd(client, []string{"--name", "test-peer", "--profile", "full-tunnel"}); err != nil {
+	if err := peersAdd(client, []string{"--name", "test-peer", "--profile", "full-tunnel", "--client-allowed-ips", "0.0.0.0/0", "--client-address", "10.0.0.2/32"}); err != nil {
 		t.Fatalf("peersAdd: %v", err)
 	}
 
@@ -164,7 +164,7 @@ func TestPeersAdd_JSON(t *testing.T) {
 	defer func() { jsonOutput = false }()
 
 	client := newUnixClient(sock)
-	if err := peersAdd(client, []string{"--name", "test"}); err != nil {
+	if err := peersAdd(client, []string{"--name", "test", "--client-allowed-ips", "0.0.0.0/0", "--client-address", "10.0.0.2/32"}); err != nil {
 		t.Fatalf("peersAdd --json: %v", err)
 	}
 }
@@ -263,7 +263,7 @@ func TestPeersApprove(t *testing.T) {
 
 	client := newUnixClient(sock)
 
-	if err := peersApprove(client, []string{"--client-address", "10.0.0.5/32", "abc1"}); err != nil {
+	if err := peersApprove(client, []string{"--client-address", "10.0.0.5/32", "--client-allowed-ips", "0.0.0.0/0", "abc1"}); err != nil {
 		t.Fatalf("peersApprove: %v", err)
 	}
 

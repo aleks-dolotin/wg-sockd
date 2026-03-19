@@ -1,5 +1,79 @@
 # Upgrading wg-sockd
 
+## v0.13.x → v0.15.0 (WYSIWYG Peer Config + Profile UX Overhaul)
+
+> **Note:** v0.14.0 was never released. This version combines the Profile UX Overhaul and WYSIWYG Cascade Removal.
+
+### Breaking Change: Configuration cascade removed
+
+The 4-level cascade (peer → profile → global → hardcoded) for generating client .conf files has been removed. Peer fields are now used directly — what you see in the UI is exactly what goes into the generated .conf.
+
+**Action required before upgrading:** Run the one-time migration script to backfill cascade-resolved values into peer records:
+
+```bash
+cmd/migrate-cascade/main.go --db-path /var/lib/wg-sockd/wg-sockd.db --config /etc/wg-sockd/config.yaml
+```
+
+This script resolves the cascade for every existing peer and writes the final values (DNS, MTU, PKA, ClientAllowedIPs, ClientAddress) directly into the peer's DB record. Run this **before** upgrading the binary.
+
+### Breaking Change: `peer_defaults` config section removed
+
+The `peer_defaults` section in config.yaml is now ignored. If you relied on global defaults for DNS, MTU, PKA, or ClientAllowedIPs, set those values on profiles instead and re-create peers or update them in bulk.
+
+### Breaking Change: Environment variables removed
+
+The following env vars are no longer effective:
+- `WG_SOCKD_CLIENT_DNS`
+- `WG_SOCKD_CLIENT_MTU`
+- `WG_SOCKD_CLIENT_PERSISTENT_KEEPALIVE`
+- `WG_SOCKD_CLIENT_ALLOWED_IPS`
+
+### Breaking Change: `client_allowed_ips` and `client_address` now required
+
+`POST /api/peers` and `POST /api/peers/{id}/approve` now require `client_allowed_ips` and `client_address` fields. Requests without them return HTTP 400.
+
+CLI: `wg-sockd-ctl peers add` now requires `--client-allowed-ips` and `--client-address` flags.
+
+### Breaking Change: `endpoint` removed from profiles
+
+The `endpoint` field has been removed from profiles entirely (database column dropped via migration 007).
+Profile endpoint was a design mistake — endpoint is unique per site-to-site peer, not a shared profile default.
+
+**Action required:** None. The migration runs automatically. If your config.yaml `peer_profiles` section
+contains `endpoint`, it will be silently ignored.
+
+Peer-level endpoint (`peers.endpoint`) is NOT affected — it continues to work as before.
+
+### API Change: `resolved_*` fields removed from GET /api/peers
+
+The following fields are no longer present in peer API responses:
+- `resolved_client_dns`, `resolved_client_dns_source`
+- `resolved_client_mtu`, `resolved_client_mtu_source`
+- `resolved_client_persistent_keepalive`, `resolved_client_persistent_keepalive_source`
+- `resolved_client_allowed_ips`, `resolved_client_allowed_ips_source`
+
+Clients that read these fields should use the direct peer fields instead (`client_dns`, `client_mtu`, `persistent_keepalive`, `client_allowed_ips`).
+
+### Behavior Change: PresharedKey no longer auto-generated from profile
+
+PSK generation is now controlled **entirely by the client request**:
+
+- The API generates a PSK only when `preshared_key: "auto"` is sent in the request body
+- The profile's `use_preshared_key` flag pre-checks the UI checkbox — the user can override it
+- The backend does NOT check the profile's flag
+
+### UI Changes
+
+- Profile create/edit moved from modal dialogs to full pages (`/settings/profiles/new`, `/settings/profiles/:name`)
+- Peer create/edit forms restructured with sections (General, Server config, Client download config) and info tooltips
+- All profile fields pre-fill peer form when profile is selected — all fields remain editable
+
+### New Documentation
+
+See [Profiles and Configuration Cascade](docs/profiles-and-cascade.md) for the WYSIWYG model reference.
+
+---
+
 ## v0.12.x → v0.13.0 (Client Config, PSK, Split-Tunnel)
 
 ### Breaking Change: `auto_approve_unknown` removed

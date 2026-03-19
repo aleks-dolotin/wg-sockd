@@ -232,7 +232,7 @@ func TestCreatePeer(t *testing.T) {
 	h, _ := newTestHandlers(t)
 	router := NewRouter(h)
 
-	body := `{"friendly_name":"New Phone","allowed_ips":["10.0.0.5/32"]}`
+	body := `{"friendly_name":"New Phone","allowed_ips":["10.0.0.5/32"],"client_address":"10.0.0.5/32","client_allowed_ips":"0.0.0.0/0, ::/0"}`
 	req := httptest.NewRequest("POST", "/api/peers", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -284,7 +284,7 @@ func TestCreatePeer_WithProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"friendly_name":"NAS Phone","profile":"nas-only"}`
+	body := `{"friendly_name":"NAS Phone","profile":"nas-only","client_address":"10.0.0.50/32","client_allowed_ips":"10.0.0.0/24"}`
 	req := httptest.NewRequest("POST", "/api/peers", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -694,7 +694,7 @@ func TestApprovePeer_Success(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("POST", "/api/peers/"+itoa(id)+"/approve",
-		strings.NewReader(`{"client_address":"10.0.0.99/32"}`))
+		strings.NewReader(`{"client_address":"10.0.0.99/32","client_allowed_ips":"0.0.0.0/0, ::/0"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -794,9 +794,9 @@ func TestBatchCreatePeers_Success(t *testing.T) {
 	router := NewRouter(h)
 
 	body := `{"peers":[
-		{"friendly_name":"Batch1","allowed_ips":["10.0.0.1/32"]},
-		{"friendly_name":"Batch2","allowed_ips":["10.0.0.2/32"]},
-		{"friendly_name":"Batch3","allowed_ips":["10.0.0.3/32"]}
+		{"friendly_name":"Batch1","allowed_ips":["10.0.0.1/32"],"client_address":"10.0.0.1/32","client_allowed_ips":"0.0.0.0/0"},
+		{"friendly_name":"Batch2","allowed_ips":["10.0.0.2/32"],"client_address":"10.0.0.2/32","client_allowed_ips":"0.0.0.0/0"},
+		{"friendly_name":"Batch3","allowed_ips":["10.0.0.3/32"],"client_address":"10.0.0.3/32","client_allowed_ips":"0.0.0.0/0"}
 	]}`
 	req := httptest.NewRequest("POST", "/api/peers/batch", strings.NewReader(body))
 	w := httptest.NewRecorder()

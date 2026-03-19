@@ -404,7 +404,6 @@ func TestCreateProfile_WithNewFields(t *testing.T) {
 		AllowedIPs:          []string{"10.0.0.0/24"},
 		ExcludeIPs:          []string{},
 		Description:         "Site-to-site profile",
-		Endpoint:            "vpn.example.com:51820",
 		PersistentKeepalive: &pka,
 		ClientDNS:           "8.8.8.8,8.8.4.4",
 		ClientMTU:           &mtu,
@@ -418,9 +417,6 @@ func TestCreateProfile_WithNewFields(t *testing.T) {
 	got, err := db.GetProfile("site-to-site")
 	if err != nil {
 		t.Fatalf("GetProfile: %v", err)
-	}
-	if got.Endpoint != "vpn.example.com:51820" {
-		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "vpn.example.com:51820")
 	}
 	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 30 {
 		t.Errorf("PersistentKeepalive: got %v, want 30", got.PersistentKeepalive)
@@ -452,7 +448,6 @@ func TestUpdateProfile_WithNewFields(t *testing.T) {
 		AllowedIPs:          []string{"0.0.0.0/0"},
 		ExcludeIPs:          []string{},
 		Description:         "Updated",
-		Endpoint:            "new.host:51820",
 		PersistentKeepalive: &pka,
 		ClientDNS:           "1.1.1.1",
 		ClientMTU:           &mtu,
@@ -465,9 +460,6 @@ func TestUpdateProfile_WithNewFields(t *testing.T) {
 	got, err := db.GetProfile("update-profile")
 	if err != nil {
 		t.Fatalf("GetProfile: %v", err)
-	}
-	if got.Endpoint != "new.host:51820" {
-		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "new.host:51820")
 	}
 	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 45 {
 		t.Errorf("PKA: got %v, want 45", got.PersistentKeepalive)
@@ -490,7 +482,6 @@ func TestSeedProfiles_WithNewFields(t *testing.T) {
 			AllowedIPs:          []string{"0.0.0.0/0"},
 			ExcludeIPs:          []string{},
 			Description:         "Seeded profile",
-			Endpoint:            "seed.host:51820",
 			PersistentKeepalive: &pka,
 			ClientDNS:           "9.9.9.9",
 		},
@@ -504,9 +495,6 @@ func TestSeedProfiles_WithNewFields(t *testing.T) {
 	got, err := db.GetProfile("seeded")
 	if err != nil {
 		t.Fatalf("GetProfile: %v", err)
-	}
-	if got.Endpoint != "seed.host:51820" {
-		t.Errorf("Endpoint: got %q, want %q", got.Endpoint, "seed.host:51820")
 	}
 	if got.PersistentKeepalive == nil || *got.PersistentKeepalive != 25 {
 		t.Errorf("PKA: got %v, want 25", got.PersistentKeepalive)

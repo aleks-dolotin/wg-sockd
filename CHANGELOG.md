@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.15.0] — 2026-03-18
+
+### Added
+
+- **WYSIWYG peer configuration** — what you see in the UI is exactly what goes into the generated `.conf` file. No hidden lookups, no cascaded inheritance, no magic.
+- **`GET /api/profiles/{name}`** — new API endpoint for fetching a single profile by name.
+- **Profile create/edit pages** — full pages at `/settings/profiles/new` and `/settings/profiles/:name` replace modal dialogs.
+- **`PeerForm` component** — unified form for peer create and edit with three sections (General, Server config, Client download config) and info tooltips.
+- **`ProfileForm` component** — reusable form for profile create/edit with all profile fields.
+- **`FieldLabel` component** — label with info tooltip for form fields.
+- **CIDR validation** — strict `net.ParseCIDR` validation for `client_allowed_ips` in API handlers (create, batch, approve) and client-side validation in `PeerForm`.
+- **CLI `--client-allowed-ips` required flag** — `wg-sockd-ctl peers add` now requires `--client-allowed-ips`.
+- **Migration script** — `cmd/migrate-cascade/main.go` resolves existing cascade values into static DB records before upgrade.
+- **SQLite migration 007** — drops `endpoint` column from profiles table.
+- **Documentation** — `docs/profiles-and-cascade.md` WYSIWYG model reference.
+
+### Changed
+
+- **Configuration cascade removed** — the 4-level cascade (peer → profile → global → hardcoded) for generating client `.conf` files has been completely removed. Client config is now generated strictly from peer DB fields.
+- **`peer_defaults` config section removed** — global defaults for DNS, MTU, PKA, ClientAllowedIPs no longer consulted. Set values on profiles or directly on peers.
+- **`client_allowed_ips` and `client_address` now required** — `POST /api/peers` and `POST /api/peers/{id}/approve` return HTTP 400 without them.
+- **`endpoint` removed from profiles** — the field was a design mistake (endpoint is unique per peer, not a shared profile default). Migration 007 drops the column.
+- **PSK generation controlled by client request only** — profile's `use_preshared_key` flag pre-checks the UI checkbox but the backend respects only what the client sends.
+- **Profile pre-fill model** — profiles are templates for pre-filling forms, not enforced policies. Changing a profile does not affect existing peers.
+- **`resolved_*` fields removed from API** — `resolved_client_dns`, `resolved_client_mtu`, `resolved_client_persistent_keepalive`, `resolved_client_allowed_ips` and their `*_source` counterparts are gone.
+- **Bump Helm chart version and appVersion to 0.15.0**
+
+### Removed
+
+- `PeerDefaultsConfig` struct and all related env vars (`WG_SOCKD_CLIENT_DNS`, `WG_SOCKD_CLIENT_MTU`, `WG_SOCKD_CLIENT_PERSISTENT_KEEPALIVE`, `WG_SOCKD_CLIENT_ALLOWED_IPS`).
+- `ResolveClientConf` function and `ResolvedConf` types from `confwriter` package.
+- `resolveClientConfForPeer` from API handlers.
+- Profile `endpoint` field (DB column and API).
+
+### Breaking Changes
+
+- Configuration cascade removed. Run `cmd/migrate-cascade` before upgrading. See UPGRADING.md.
+- `peer_defaults` config section ignored. Remove it from `config.yaml`.
+- `client_allowed_ips` and `client_address` now required in create/approve API calls.
+- `resolved_*` fields removed from `GET /api/peers` responses.
+- Profile `endpoint` field removed.
+
 ## [v0.13.0] — 2026-03-18
 
 ### Added

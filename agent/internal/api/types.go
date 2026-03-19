@@ -25,21 +25,12 @@ type PeerResponse struct {
 	PersistentKeepalive *int   `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string `json:"client_dns,omitempty"`
 	ClientMTU           *int   `json:"client_mtu,omitempty"`
-	// Resolved client conf values (4-level cascade)
-	ResolvedClientDNS       string `json:"resolved_client_dns,omitempty"`
-	ResolvedClientDNSSource string `json:"resolved_client_dns_source,omitempty"`
-	ResolvedClientMTU       int    `json:"resolved_client_mtu,omitempty"`
-	ResolvedClientMTUSource string `json:"resolved_client_mtu_source,omitempty"`
-	ResolvedClientPKA       int    `json:"resolved_client_persistent_keepalive"`
-	ResolvedClientPKASource string `json:"resolved_client_persistent_keepalive_source,omitempty"`
 	// Phase 1: client_address and last_seen_endpoint
 	ClientAddress    string `json:"client_address,omitempty"`
 	LastSeenEndpoint string `json:"last_seen_endpoint,omitempty"`
 	// Phase 2: PSK status (never expose value in GET) + split-tunnel
 	HasPresharedKey                bool   `json:"has_preshared_key"`
 	ClientAllowedIPs               string `json:"client_allowed_ips,omitempty"`
-	ResolvedClientAllowedIPs       string `json:"resolved_client_allowed_ips,omitempty"`
-	ResolvedClientAllowedIPsSource string `json:"resolved_client_allowed_ips_source,omitempty"`
 }
 
 // CreatePeerRequest is the input for POST /api/peers.
@@ -84,6 +75,7 @@ type ApprovePeerRequest struct {
 	Profile             *string  `json:"profile,omitempty"`
 	AllowedIPs          []string `json:"allowed_ips,omitempty"`
 	ClientAddress       string   `json:"client_address"`
+	ClientAllowedIPs    string   `json:"client_allowed_ips"`
 	ConfiguredEndpoint  string   `json:"configured_endpoint,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
@@ -130,7 +122,6 @@ type ProfileResponse struct {
 	RouteCount         int      `json:"route_count"`
 	RouteWarning       string   `json:"route_warning,omitempty"`
 	PeerCount          int      `json:"peer_count"`
-	Endpoint            string  `json:"endpoint,omitempty"`
 	PersistentKeepalive *int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string  `json:"client_dns,omitempty"`
 	ClientMTU           *int    `json:"client_mtu,omitempty"`
@@ -144,7 +135,6 @@ type CreateProfileRequest struct {
 	AllowedIPs          []string `json:"allowed_ips"`
 	ExcludeIPs          []string `json:"exclude_ips"`
 	Description         string   `json:"description,omitempty"`
-	Endpoint            string   `json:"endpoint,omitempty"`
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
@@ -157,7 +147,6 @@ type UpdateProfileRequest struct {
 	AllowedIPs          []string `json:"allowed_ips,omitempty"`
 	ExcludeIPs          []string `json:"exclude_ips,omitempty"`
 	Description         *string  `json:"description,omitempty"`
-	Endpoint            *string  `json:"endpoint,omitempty"`
 	PersistentKeepalive **int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           *string  `json:"client_dns,omitempty"`
 	ClientMTU           **int    `json:"client_mtu,omitempty"`

@@ -3,6 +3,7 @@ import {
   fetchPeers,
   fetchPeer,
   fetchProfiles,
+  fetchProfile,
   fetchStats,
   fetchHealth,
 } from './client'
@@ -26,6 +27,14 @@ export function useProfiles() {
   return useQuery({
     queryKey: ['profiles'],
     queryFn: fetchProfiles,
+  })
+}
+
+export function useProfile(name) {
+  return useQuery({
+    queryKey: ['profiles', name],
+    queryFn: () => fetchProfile(name),
+    enabled: !!name,
   })
 }
 

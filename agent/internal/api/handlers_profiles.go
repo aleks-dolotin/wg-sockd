@@ -15,6 +15,32 @@ import (
 // profileNameRe validates profile names: lowercase letters, digits, hyphens.
 var profileNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 
+// GetProfile handles GET /api/profiles/{name}.
+// Returns a single profile with resolved_allowed_ips.
+func (h *Handlers) GetProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	profile, err := h.store.GetProfile(name)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not_found", fmt.Sprintf("profile %q not found", name))
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+
+	resp := profileToResponse(*profile)
+
+	// Count peers for this profile.
+	peerCounts, err := h.store.CountPeersPerProfile()
+	if err == nil {
+		resp.PeerCount = peerCounts[profile.Name]
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ListProfiles handles GET /api/profiles.
 // Returns all profiles with resolved_allowed_ips computed via CIDR calculator.
 func (h *Handlers) ListProfiles(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +114,6 @@ func (h *Handlers) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		ExcludeIPs:          excludeIPs,
 		Description:         req.Description,
 		IsDefault:           false,
-		Endpoint:            req.Endpoint,
 		PersistentKeepalive: req.PersistentKeepalive,
 		ClientDNS:           req.ClientDNS,
 		ClientMTU:           req.ClientMTU,
@@ -141,7 +166,6 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		AllowedIPs:          existing.AllowedIPs,
 		ExcludeIPs:          existing.ExcludeIPs,
 		Description:         existing.Description,
-		Endpoint:            existing.Endpoint,
 		PersistentKeepalive: existing.PersistentKeepalive,
 		ClientDNS:           existing.ClientDNS,
 		ClientMTU:           existing.ClientMTU,
@@ -157,9 +181,6 @@ func (h *Handlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Description != nil {
 		updated.Description = *req.Description
-	}
-	if req.Endpoint != nil {
-		updated.Endpoint = *req.Endpoint
 	}
 	if req.PersistentKeepalive != nil {
 		updated.PersistentKeepalive = *req.PersistentKeepalive
@@ -226,7 +247,6 @@ func profileToResponse(p storage.Profile) ProfileResponse {
 		ExcludeIPs:          p.ExcludeIPs,
 		Description:         p.Description,
 		IsDefault:           p.IsDefault,
-		Endpoint:            p.Endpoint,
 		PersistentKeepalive: p.PersistentKeepalive,
 		ClientDNS:           p.ClientDNS,
 		ClientMTU:           p.ClientMTU,
