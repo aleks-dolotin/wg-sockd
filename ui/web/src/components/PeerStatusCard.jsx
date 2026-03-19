@@ -64,12 +64,12 @@ export default function PeerStatusCard({ peer }) {
             <dd>{formatBytes(peer.transfer_tx)}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground mb-0.5">Profile</dt>
-            <dd>{peer.profile || '—'}</dd>
+            <dt className="text-muted-foreground mb-0.5">Tunnel Address</dt>
+            <dd className="font-mono text-xs">{peer.client_address || '—'}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground mb-0.5">Allowed IPs</dt>
-            <dd className="font-mono text-xs">{peer.allowed_ips?.join(', ') || '—'}</dd>
+            <dt className="text-muted-foreground mb-0.5">Client Routing</dt>
+            <dd className="font-mono text-xs">{peer.client_allowed_ips || '—'}</dd>
           </div>
         </dl>
       </CardContent>

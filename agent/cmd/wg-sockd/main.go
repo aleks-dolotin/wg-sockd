@@ -244,7 +244,6 @@ func main() {
 				PersistentKeepalive: p.PersistentKeepalive,
 				ClientDNS:           p.ClientDNS,
 				ClientMTU:           p.ClientMTU,
-				ClientAllowedIPs:    p.ClientAllowedIPs,
 				UsePresharedKey:     p.UsePresharedKey,
 			}
 		}
@@ -411,7 +410,6 @@ func main() {
 
 	// 11. Start watchdog goroutine.
 	go watchdogLoop(ctx)
-
 
 	// 12. Optional: TCP listener for embedded UI mode.
 	// Config-driven UI with explicit boolean merge (F1, F13).

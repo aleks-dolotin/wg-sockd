@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.16.0] — 2026-03-19
+
+### Architecture Fix: Server AllowedIPs
+
+**Breaking change** — database must be recreated from scratch (no migration path).
+
+#### Fixed
+
+- **Server `[Peer] AllowedIPs`** — now auto-derived as `/32` from `client_address` instead of using profile CIDR ranges. Fixes security issue where a client peer could spoof source IPs from entire subnets.
+- **Kernel AllowedIPs** — peers now correctly get their tunnel IP as the only allowed source address in the WireGuard kernel.
+- **Profile → Peer data flow** — profile `allowed_ips` (after CIDR math) now flows into `peer.client_allowed_ips` (client routing) instead of `peer.allowed_ips` (server ACL).
+
+#### Changed
+
+- **Database schema** — replaced incremental migration system with single `CREATE TABLE` schema. No `schema_version` table. Database is created from scratch on first start.
+- **Profile `client_allowed_ips` removed** — profile `allowed_ips - exclude_ips` now directly determines client routing. Separate `client_allowed_ips` on profiles was redundant.
+- **PeerForm UI** — reorganized into 4 sections: General, Tunnel Identity, Server-side, Client download config. Removed manual "Allowed IPs" input (server AllowedIPs is auto-derived). Updated all field labels and hints.
+- **ProfileForm UI** — reorganized into 4 sections: General, Network Access (client routing), Server-side defaults, Client config defaults. "Allowed IPs" → "Allowed Networks", "Exclude IPs" → "Exclude Networks". Removed `client_allowed_ips` field.
+- **PeerStatusCard** — shows "Tunnel Address" and "Client Routing" instead of "Profile" and "Allowed IPs".
+- **PeersPage table** — "Allowed IPs" column → "Client Routing", shows `client_allowed_ips` instead of server AllowedIPs.
+
+#### Removed
+
+- `agent/internal/storage/migrations/` — entire migration system
+- `cmd/migrate-cascade/` — one-time migration utility
+- `profile.client_allowed_ips` — DB column, Go struct field, API field
+
+#### Documentation
+
+- `docs/field-architecture.md` — new canonical reference for field-to-WireGuard mapping
+- `docs/gap-analysis.md` — gap analysis between old and new architecture
+
 ## [v0.15.0] — 2026-03-18
 
 ### Added

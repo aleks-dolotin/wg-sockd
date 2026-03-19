@@ -147,7 +147,7 @@ export default function PeersPage() {
                 <TableRow>
                   <SortableHead label="Name" field="name" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <TableHead>Public Key</TableHead>
-                  <TableHead>Allowed IPs</TableHead>
+                  <TableHead>Client Routing</TableHead>
                   <SortableHead label="Profile" field="profile" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <SortableHead label="Status" field="status" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <SortableHead label="Transfer" field="transfer" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
@@ -166,7 +166,7 @@ export default function PeersPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{truncateKey(peer.public_key)}</TableCell>
-                      <TableCell className="text-xs max-w-[200px] truncate">{peer.allowed_ips?.join(', ') || '—'}</TableCell>
+                      <TableCell className="text-xs max-w-[200px] truncate">{peer.client_allowed_ips || '—'}</TableCell>
                       <TableCell>{peer.profile || '—'}</TableCell>
                       <TableCell>
                         <Badge variant={online ? 'default' : 'secondary'}>{online ? 'Online' : 'Offline'}</Badge>
@@ -212,7 +212,7 @@ export default function PeersPage() {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     {peer.auto_discovered && <Badge variant="secondary" className="text-amber-600 dark:text-amber-400">Auto-discovered</Badge>}
-                    <p className="text-muted-foreground truncate">{peer.allowed_ips?.join(', ')}</p>
+                    <p className="text-muted-foreground truncate">{peer.client_allowed_ips || '—'}</p>
                     <p className="text-xs text-muted-foreground">↓{formatBytes(peer.transfer_rx)} ↑{formatBytes(peer.transfer_tx)}</p>
                     <div className="flex gap-2 pt-1">
                       <Button variant="outline" size="sm" onClick={() => navigate('/peers/' + peer.id)}>Edit</Button>

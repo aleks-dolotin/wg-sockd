@@ -21,7 +21,6 @@ type PeerProfileConfig struct {
 	PersistentKeepalive *int     `yaml:"persistent_keepalive"`
 	ClientDNS           string   `yaml:"client_dns"`
 	ClientMTU           *int     `yaml:"client_mtu"`
-	ClientAllowedIPs    string   `yaml:"client_allowed_ips"`
 	UsePresharedKey     bool     `yaml:"use_preshared_key"`
 }
 
@@ -47,13 +46,13 @@ type WebAuthnConfig struct {
 
 // AuthConfig holds all authentication configuration.
 type AuthConfig struct {
-	Basic          BasicAuthConfig  `yaml:"basic"`
-	Token          TokenAuthConfig  `yaml:"token"`
-	WebAuthn       WebAuthnConfig   `yaml:"webauthn"`
-	SessionTTL     time.Duration    `yaml:"session_ttl"`
-	SkipUnixSocket bool             `yaml:"skip_unix_socket"`
-	SecureCookies  string           `yaml:"secure_cookies"`
-	MaxSessions    int              `yaml:"max_sessions"`
+	Basic          BasicAuthConfig `yaml:"basic"`
+	Token          TokenAuthConfig `yaml:"token"`
+	WebAuthn       WebAuthnConfig  `yaml:"webauthn"`
+	SessionTTL     time.Duration   `yaml:"session_ttl"`
+	SkipUnixSocket bool            `yaml:"skip_unix_socket"`
+	SecureCookies  string          `yaml:"secure_cookies"`
+	MaxSessions    int             `yaml:"max_sessions"`
 }
 
 // AnyEnabled returns true if at least one authentication method is enabled.
@@ -63,34 +62,34 @@ func (a *AuthConfig) AnyEnabled() bool {
 
 // Config holds all agent configuration.
 type Config struct {
-	Interface          string               `yaml:"interface"`
-	SocketPath         string               `yaml:"socket_path"`
-	DBPath             string               `yaml:"db_path"`
-	ConfPath           string               `yaml:"conf_path"`
-	ListenAddr         string               `yaml:"listen_addr"`
-	ExternalEndpoint   string               `yaml:"external_endpoint"`
-	PeerLimit          int                  `yaml:"peer_limit"`
-	ReconcileInterval  time.Duration        `yaml:"reconcile_interval"`
-	PeerProfiles       []PeerProfileConfig  `yaml:"peer_profiles"`
-	RateLimit          int                  `yaml:"rate_limit"`
-	ServeUI            bool                 `yaml:"serve_ui"`
-	UIListen           string               `yaml:"ui_listen"`
-	Auth               AuthConfig           `yaml:"auth"`
+	Interface         string              `yaml:"interface"`
+	SocketPath        string              `yaml:"socket_path"`
+	DBPath            string              `yaml:"db_path"`
+	ConfPath          string              `yaml:"conf_path"`
+	ListenAddr        string              `yaml:"listen_addr"`
+	ExternalEndpoint  string              `yaml:"external_endpoint"`
+	PeerLimit         int                 `yaml:"peer_limit"`
+	ReconcileInterval time.Duration       `yaml:"reconcile_interval"`
+	PeerProfiles      []PeerProfileConfig `yaml:"peer_profiles"`
+	RateLimit         int                 `yaml:"rate_limit"`
+	ServeUI           bool                `yaml:"serve_ui"`
+	UIListen          string              `yaml:"ui_listen"`
+	Auth              AuthConfig          `yaml:"auth"`
 }
 
 // Defaults returns a Config populated with default values.
 func Defaults() *Config {
 	return &Config{
-		Interface:          "wg0",
-		SocketPath:         "/run/wg-sockd/wg-sockd.sock",
-		DBPath:             "/var/lib/wg-sockd/wg-sockd.db",
-		ConfPath:           "/etc/wireguard/wg0.conf",
-		ListenAddr:         "",
-		PeerLimit:          250,
-		ReconcileInterval:  30 * time.Second,
-		RateLimit:          10,
-		ServeUI:            false,
-		UIListen:           "127.0.0.1:8080",
+		Interface:         "wg0",
+		SocketPath:        "/run/wg-sockd/wg-sockd.sock",
+		DBPath:            "/var/lib/wg-sockd/wg-sockd.db",
+		ConfPath:          "/etc/wireguard/wg0.conf",
+		ListenAddr:        "",
+		PeerLimit:         250,
+		ReconcileInterval: 30 * time.Second,
+		RateLimit:         10,
+		ServeUI:           false,
+		UIListen:          "127.0.0.1:8080",
 		Auth: AuthConfig{
 			SessionTTL:     15 * time.Minute,
 			SkipUnixSocket: true,

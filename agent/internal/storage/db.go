@@ -3,25 +3,82 @@ package storage
 
 import (
 	"database/sql"
-	"embed"
 	"fmt"
 	"log"
-	"sort"
-	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
+// schema is the canonical database schema. Applied once on first start.
+// No migration system — database is created from scratch.
+const schema = `
+CREATE TABLE IF NOT EXISTS peers (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	public_key TEXT UNIQUE NOT NULL,
+	friendly_name TEXT NOT NULL DEFAULT '',
+	allowed_ips TEXT NOT NULL DEFAULT '',
+	profile TEXT,
+	enabled BOOLEAN NOT NULL DEFAULT 1,
+	auto_discovered BOOLEAN NOT NULL DEFAULT 0,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	notes TEXT NOT NULL DEFAULT '',
+	endpoint TEXT NOT NULL DEFAULT '',
+	persistent_keepalive INTEGER,
+	client_dns TEXT NOT NULL DEFAULT '',
+	client_mtu INTEGER,
+	client_address TEXT NOT NULL DEFAULT '',
+	last_seen_endpoint TEXT NOT NULL DEFAULT '',
+	preshared_key TEXT NOT NULL DEFAULT '',
+	client_allowed_ips TEXT NOT NULL DEFAULT ''
+);
 
-// DB wraps a sql.DB connection with migration support.
+CREATE INDEX IF NOT EXISTS idx_peers_public_key ON peers(public_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_peers_client_address ON peers(client_address) WHERE client_address != '';
+
+CREATE TABLE IF NOT EXISTS profiles (
+	name TEXT PRIMARY KEY,
+	allowed_ips TEXT NOT NULL DEFAULT '[]',
+	exclude_ips TEXT NOT NULL DEFAULT '[]',
+	description TEXT NOT NULL DEFAULT '',
+	is_default BOOLEAN NOT NULL DEFAULT 0,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	persistent_keepalive INTEGER,
+	client_dns TEXT NOT NULL DEFAULT '',
+	client_mtu INTEGER,
+	use_preshared_key BOOLEAN NOT NULL DEFAULT 0
+);
+
+CREATE TRIGGER IF NOT EXISTS fk_peers_profile_insert
+BEFORE INSERT ON peers
+WHEN NEW.profile IS NOT NULL
+BEGIN
+	SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed: peers.profile references profiles.name')
+	WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE name = NEW.profile);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fk_peers_profile_update
+BEFORE UPDATE OF profile ON peers
+WHEN NEW.profile IS NOT NULL
+BEGIN
+	SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed: peers.profile references profiles.name')
+	WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE name = NEW.profile);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fk_profiles_delete
+BEFORE DELETE ON profiles
+BEGIN
+	SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed: profiles.name is referenced by peers')
+	WHERE EXISTS (SELECT 1 FROM peers WHERE profile = OLD.name);
+END;
+`
+
+// DB wraps a sql.DB connection.
 type DB struct {
 	conn *sql.DB
 }
 
 // NewDB opens a SQLite database at the given path, enables WAL mode,
-// runs integrity check, and applies pending migrations.
+// runs integrity check, and creates tables if they don't exist.
 // Use ":memory:" for in-memory databases (testing).
 func NewDB(dbPath string) (*DB, error) {
 	conn, err := sql.Open("sqlite", dbPath)
@@ -61,9 +118,9 @@ func NewDB(dbPath string) (*DB, error) {
 
 	db := &DB{conn: conn}
 
-	if err := db.runMigrations(); err != nil {
+	if _, err := conn.Exec(schema); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("running migrations: %w", err)
+		return nil, fmt.Errorf("creating schema: %w", err)
 	}
 
 	return db, nil
@@ -77,66 +134,4 @@ func (db *DB) Close() error {
 // Conn returns the underlying sql.DB for direct queries.
 func (db *DB) Conn() *sql.DB {
 	return db.conn
-}
-
-// runMigrations applies all pending .sql migrations in order.
-func (db *DB) runMigrations() error {
-	// Create schema_version table if not exists.
-	_, err := db.conn.Exec(`
-		CREATE TABLE IF NOT EXISTS schema_version (
-			version TEXT PRIMARY KEY,
-			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("creating schema_version table: %w", err)
-	}
-
-	// Read all migration files.
-	entries, err := migrationsFS.ReadDir("migrations")
-	if err != nil {
-		return fmt.Errorf("reading migrations directory: %w", err)
-	}
-
-	// Sort by filename to ensure order.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-
-		name := entry.Name()
-
-		// Check if already applied.
-		var count int
-		err := db.conn.QueryRow("SELECT COUNT(*) FROM schema_version WHERE version = ?", name).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("checking migration %s: %w", name, err)
-		}
-		if count > 0 {
-			continue
-		}
-
-		// Read and execute migration.
-		data, err := migrationsFS.ReadFile("migrations/" + name)
-		if err != nil {
-			return fmt.Errorf("reading migration %s: %w", name, err)
-		}
-
-		if _, err := db.conn.Exec(string(data)); err != nil {
-			return fmt.Errorf("executing migration %s: %w", name, err)
-		}
-
-		// Record as applied.
-		if _, err := db.conn.Exec("INSERT INTO schema_version (version) VALUES (?)", name); err != nil {
-			return fmt.Errorf("recording migration %s: %w", name, err)
-		}
-
-		log.Printf("Applied migration: %s", name)
-	}
-
-	return nil
 }

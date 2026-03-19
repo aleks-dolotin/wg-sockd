@@ -10,7 +10,6 @@ export function profileToFormData(p) {
     persistent_keepalive: p.persistent_keepalive != null ? String(p.persistent_keepalive) : '',
     client_dns: p.client_dns || '',
     client_mtu: p.client_mtu != null ? String(p.client_mtu) : '',
-    client_allowed_ips: p.client_allowed_ips || '',
     use_preshared_key: p.use_preshared_key ?? false,
   }
 }

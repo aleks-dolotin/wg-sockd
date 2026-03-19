@@ -5,7 +5,6 @@ export function peerToFormData(peer) {
   return {
     name: peer.friendly_name || '',
     profile: peer.profile || '',
-    allowedIPs: (peer.allowed_ips || []).join(', '),
     notes: peer.notes || '',
     clientAddress: peer.client_address || '',
     endpoint: peer.configured_endpoint || '',

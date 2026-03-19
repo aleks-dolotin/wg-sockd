@@ -5,23 +5,13 @@ import (
 	"testing"
 )
 
-func TestMigration002_ProfilesTableExists(t *testing.T) {
+func TestProfilesTableExists(t *testing.T) {
 	db := newTestDB(t)
 
 	// Verify profiles table exists and has correct columns.
-	_, err := db.Conn().Exec("SELECT name, allowed_ips, exclude_ips, description, is_default, created_at FROM profiles LIMIT 0")
+	_, err := db.Conn().Exec("SELECT name, allowed_ips, exclude_ips, description, is_default, created_at, persistent_keepalive, client_dns, client_mtu, use_preshared_key FROM profiles LIMIT 0")
 	if err != nil {
 		t.Fatalf("profiles table should exist with expected columns: %v", err)
-	}
-
-	// Verify migration was recorded.
-	var count int
-	err = db.Conn().QueryRow("SELECT COUNT(*) FROM schema_version WHERE version = '002_profiles.sql'").Scan(&count)
-	if err != nil {
-		t.Fatalf("querying schema_version: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected migration 002_profiles.sql to be recorded, got count=%d", count)
 	}
 }
 
@@ -272,8 +262,8 @@ func TestDeleteProfile_WithReferencingPeers_Error(t *testing.T) {
 	profileName := "referenced"
 	peer := &Peer{
 		PublicKey: "peer-with-profile",
-		Profile:  &profileName,
-		Enabled:  true,
+		Profile:   &profileName,
+		Enabled:   true,
 	}
 	_, err := db.CreatePeer(peer)
 	if err != nil {
@@ -309,8 +299,8 @@ func TestFKTrigger_PeerInsert_InvalidProfile(t *testing.T) {
 	badProfile := "nonexistent-profile"
 	peer := &Peer{
 		PublicKey: "fk-test-peer",
-		Profile:  &badProfile,
-		Enabled:  true,
+		Profile:   &badProfile,
+		Enabled:   true,
 	}
 	_, err := db.CreatePeer(peer)
 	if err == nil {
@@ -324,8 +314,8 @@ func TestFKTrigger_PeerInsert_NullProfile_OK(t *testing.T) {
 	// Peer with nil profile should be fine ("Custom" = no profile).
 	peer := &Peer{
 		PublicKey: "null-profile-peer",
-		Profile:  nil,
-		Enabled:  true,
+		Profile:   nil,
+		Enabled:   true,
 	}
 	_, err := db.CreatePeer(peer)
 	if err != nil {
@@ -348,8 +338,8 @@ func TestFKTrigger_PeerInsert_ValidProfile_OK(t *testing.T) {
 	profileName := "valid-profile"
 	peer := &Peer{
 		PublicKey: "valid-profile-peer",
-		Profile:  &profileName,
-		Enabled:  true,
+		Profile:   &profileName,
+		Enabled:   true,
 	}
 	_, err := db.CreatePeer(peer)
 	if err != nil {
@@ -363,8 +353,8 @@ func TestFKTrigger_PeerUpdate_InvalidProfile(t *testing.T) {
 	// Create a peer with no profile.
 	peer := &Peer{
 		PublicKey: "update-fk-peer",
-		Profile:  nil,
-		Enabled:  true,
+		Profile:   nil,
+		Enabled:   true,
 	}
 	_, err := db.CreatePeer(peer)
 	if err != nil {

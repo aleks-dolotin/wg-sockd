@@ -16,7 +16,7 @@ type PeerResponse struct {
 	AutoDiscovered  bool       `json:"auto_discovered"`
 	CreatedAt       time.Time  `json:"created_at"`
 	Notes           string     `json:"notes,omitempty"`
-	Endpoint        string     `json:"endpoint,omitempty"`          // runtime from wg show
+	Endpoint        string     `json:"endpoint,omitempty"` // runtime from wg show
 	LatestHandshake *time.Time `json:"latest_handshake,omitempty"`
 	TransferRx      int64      `json:"transfer_rx"`
 	TransferTx      int64      `json:"transfer_tx"`
@@ -29,8 +29,8 @@ type PeerResponse struct {
 	ClientAddress    string `json:"client_address,omitempty"`
 	LastSeenEndpoint string `json:"last_seen_endpoint,omitempty"`
 	// Phase 2: PSK status (never expose value in GET) + split-tunnel
-	HasPresharedKey                bool   `json:"has_preshared_key"`
-	ClientAllowedIPs               string `json:"client_allowed_ips,omitempty"`
+	HasPresharedKey  bool   `json:"has_preshared_key"`
+	ClientAllowedIPs string `json:"client_allowed_ips,omitempty"`
 }
 
 // CreatePeerRequest is the input for POST /api/peers.
@@ -113,20 +113,19 @@ type StatsResponse struct {
 
 // ProfileResponse represents a peer profile with resolved allowed IPs.
 type ProfileResponse struct {
-	Name               string   `json:"name"`
-	AllowedIPs         []string `json:"allowed_ips"`
-	ExcludeIPs         []string `json:"exclude_ips"`
-	ResolvedAllowedIPs []string `json:"resolved_allowed_ips"`
-	Description        string   `json:"description,omitempty"`
-	IsDefault          bool     `json:"is_default"`
-	RouteCount         int      `json:"route_count"`
-	RouteWarning       string   `json:"route_warning,omitempty"`
-	PeerCount          int      `json:"peer_count"`
-	PersistentKeepalive *int    `json:"persistent_keepalive,omitempty"`
-	ClientDNS           string  `json:"client_dns,omitempty"`
-	ClientMTU           *int    `json:"client_mtu,omitempty"`
-	ClientAllowedIPs    string  `json:"client_allowed_ips,omitempty"`
-	UsePresharedKey     bool    `json:"use_preshared_key"`
+	Name                string   `json:"name"`
+	AllowedIPs          []string `json:"allowed_ips"`
+	ExcludeIPs          []string `json:"exclude_ips"`
+	ResolvedAllowedIPs  []string `json:"resolved_allowed_ips"`
+	Description         string   `json:"description,omitempty"`
+	IsDefault           bool     `json:"is_default"`
+	RouteCount          int      `json:"route_count"`
+	RouteWarning        string   `json:"route_warning,omitempty"`
+	PeerCount           int      `json:"peer_count"`
+	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
+	ClientDNS           string   `json:"client_dns,omitempty"`
+	ClientMTU           *int     `json:"client_mtu,omitempty"`
+	UsePresharedKey     bool     `json:"use_preshared_key"`
 }
 
 // CreateProfileRequest is the input for POST /api/profiles.
@@ -138,7 +137,6 @@ type CreateProfileRequest struct {
 	PersistentKeepalive *int     `json:"persistent_keepalive,omitempty"`
 	ClientDNS           string   `json:"client_dns,omitempty"`
 	ClientMTU           *int     `json:"client_mtu,omitempty"`
-	ClientAllowedIPs    string   `json:"client_allowed_ips,omitempty"`
 	UsePresharedKey     bool     `json:"use_preshared_key"`
 }
 
@@ -150,7 +148,6 @@ type UpdateProfileRequest struct {
 	PersistentKeepalive **int    `json:"persistent_keepalive,omitempty"`
 	ClientDNS           *string  `json:"client_dns,omitempty"`
 	ClientMTU           **int    `json:"client_mtu,omitempty"`
-	ClientAllowedIPs    *string  `json:"client_allowed_ips,omitempty"`
 	UsePresharedKey     *bool    `json:"use_preshared_key,omitempty"`
 }
 

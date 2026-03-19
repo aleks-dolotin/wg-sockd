@@ -259,11 +259,16 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		pskKey = &parsed
 	}
 
-	// Parse allowed IPs for wgctrl.
-	var allowedNets []net.IPNet
-	for _, cidr := range resolvedAllowedIPs {
-		_, ipNet, _ := net.ParseCIDR(cidr) // already validated
-		allowedNets = append(allowedNets, *ipNet)
+	// Parse allowed IPs for wgctrl — server-side is always client_address/32.
+	serverAllowedIP := clientAddressTo32(req.ClientAddress)
+	_, serverNet, _ := net.ParseCIDR(serverAllowedIP) // already validated client_address above
+	allowedNets := []net.IPNet{*serverNet}
+
+	// Resolve client_allowed_ips: from profile CIDR math or from request.
+	clientAllowedIPs := req.ClientAllowedIPs
+	if hasProfile && clientAllowedIPs == "" {
+		// Profile CIDR math result becomes client routing.
+		clientAllowedIPs = strings.Join(resolvedAllowedIPs, ", ")
 	}
 
 	// Add to wgctrl.
@@ -292,11 +297,10 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert to SQLite.
-	allowedIPsStr := strings.Join(resolvedAllowedIPs, ",")
 	dbPeer := &storage.Peer{
 		PublicKey:           pubKey.String(),
 		FriendlyName:        req.FriendlyName,
-		AllowedIPs:          allowedIPsStr,
+		AllowedIPs:          serverAllowedIP,
 		Enabled:             true,
 		Endpoint:            req.ConfiguredEndpoint,
 		PersistentKeepalive: req.PersistentKeepalive,
@@ -304,7 +308,7 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		ClientMTU:           req.ClientMTU,
 		ClientAddress:       req.ClientAddress,
 		PresharedKey:        pskStr,
-		ClientAllowedIPs:    req.ClientAllowedIPs,
+		ClientAllowedIPs:    clientAllowedIPs,
 	}
 	if hasProfile {
 		dbPeer.Profile = req.Profile
@@ -334,7 +338,7 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		ID:                  id,
 		PublicKey:           pubKey.String(),
 		FriendlyName:        req.FriendlyName,
-		AllowedIPs:          resolvedAllowedIPs,
+		AllowedIPs:          []string{serverAllowedIP},
 		Profile:             req.Profile,
 		Enabled:             true,
 		CreatedAt:           time.Now(),
@@ -344,7 +348,7 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		ClientMTU:           req.ClientMTU,
 		ClientAddress:       req.ClientAddress,
 		HasPresharedKey:     pskStr != "",
-		ClientAllowedIPs:    req.ClientAllowedIPs,
+		ClientAllowedIPs:    clientAllowedIPs,
 	}
 
 	// Build full client conf with private key (one-time — never stored).
@@ -450,8 +454,8 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 		privKey    wgtypes.Key
 		pubKey     wgtypes.Key
 		allowedIPs []string
-		pskStr     string        // base64 PSK for DB storage; empty = no PSK
-		pskKey     *wgtypes.Key  // parsed PSK for wgctrl; nil = no PSK
+		pskStr     string       // base64 PSK for DB storage; empty = no PSK
+		pskKey     *wgtypes.Key // parsed PSK for wgctrl; nil = no PSK
 		req        CreatePeerRequest
 	}
 
@@ -525,17 +529,14 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Single wgctrl call.
+	// Single wgctrl call — server-side AllowedIPs is always client_address/32.
 	wgConfigs := make([]wireguard.PeerConfig, 0, len(resolved))
 	for _, rp := range resolved {
-		var nets []net.IPNet
-		for _, cidr := range rp.allowedIPs {
-			_, ipNet, _ := net.ParseCIDR(cidr)
-			nets = append(nets, *ipNet)
-		}
+		serverIP := clientAddressTo32(rp.req.ClientAddress)
+		_, serverNet, _ := net.ParseCIDR(serverIP)
 		wgCfg := wireguard.PeerConfig{
 			PublicKey:    rp.pubKey,
-			AllowedIPs:   nets,
+			AllowedIPs:   []net.IPNet{*serverNet},
 			PresharedKey: rp.pskKey,
 		}
 		// Pass endpoint to wgctrl (best-effort DNS resolution).
@@ -566,21 +567,28 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	// Single SQLite transaction.
 	dbPeers := make([]*storage.Peer, 0, len(resolved))
 	for _, rp := range resolved {
+		// Server AllowedIPs = /32 from client_address.
+		serverIP := clientAddressTo32(rp.req.ClientAddress)
+		// Client AllowedIPs: from profile CIDR math or from request.
+		clientAIPs := rp.req.ClientAllowedIPs
+		if clientAIPs == "" {
+			clientAIPs = strings.Join(rp.allowedIPs, ", ")
+		}
 		dbPeer := &storage.Peer{
 			PublicKey:           rp.pubKey.String(),
 			FriendlyName:        rp.req.FriendlyName,
-			AllowedIPs:          strings.Join(rp.allowedIPs, ","),
+			AllowedIPs:          serverIP,
 			Enabled:             true,
 			Endpoint:            rp.req.ConfiguredEndpoint,
 			PersistentKeepalive: rp.req.PersistentKeepalive,
 			ClientDNS:           rp.req.ClientDNS,
 			ClientMTU:           rp.req.ClientMTU,
+			ClientAddress:       rp.req.ClientAddress,
 			PresharedKey:        rp.pskStr,
-			ClientAllowedIPs:    rp.req.ClientAllowedIPs,
+			ClientAllowedIPs:    clientAIPs,
 		}
 		if rp.req.Profile != nil && *rp.req.Profile != "" {
 			dbPeer.Profile = rp.req.Profile
@@ -715,13 +723,13 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 
 	// Determine if network config changes (requires wgctrl update).
 	needsWgUpdate := false
-	var newAllowedIPs string
+	var newClientAllowedIPs string
 
-	// Handle profile change.
+	// Handle profile change — updates client routing, not server AllowedIPs.
 	if req.Profile != nil {
 		profilePtr := *req.Profile
 		if profilePtr != nil && *profilePtr != "" {
-			// Resolve profile → allowed IPs.
+			// Resolve profile → client allowed IPs via CIDR calculator.
 			profile, err := h.store.GetProfile(*profilePtr)
 			if err != nil {
 				if err == sql.ErrNoRows {
@@ -736,33 +744,24 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "cidr_error", err.Error())
 				return
 			}
-			newAllowedIPs = strings.Join(result.Prefixes, ",")
-			needsWgUpdate = true
+			newClientAllowedIPs = strings.Join(result.Prefixes, ", ")
 		} else {
 			// Profile is being detached (set to null).
-			// Require allowed_ips to be explicitly provided (even as []) when detaching
-			// a profile, otherwise the peer would keep stale profile-resolved IPs in the kernel.
-			// nil means the field was omitted entirely → reject.
-			// [] (empty slice) is valid and means "block all traffic for this peer".
-			if req.AllowedIPs == nil {
+			// client_allowed_ips must be explicitly provided when detaching a profile.
+			if req.ClientAllowedIPs == nil {
 				writeError(w, http.StatusBadRequest, "validation_error",
-					"allowed_ips is required when detaching a profile")
+					"client_allowed_ips is required when detaching a profile")
 				return
 			}
 		}
 	}
 
-	// Handle direct allowed_ips change (without profile).
-	if len(req.AllowedIPs) > 0 && !needsWgUpdate {
-		if err := middleware.ValidateAllowedIPs(req.AllowedIPs); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-		newAllowedIPs = strings.Join(req.AllowedIPs, ",")
+	// Handle client_address change — updates server AllowedIPs (/32).
+	if req.ClientAddress != nil && *req.ClientAddress != existing.ClientAddress {
 		needsWgUpdate = true
 	}
 
-	// Update wgctrl if network config changed.
+	// Update wgctrl if client_address changed (server AllowedIPs = /32).
 	if needsWgUpdate {
 		pubKeyBytes, err := wireguard.ParseKey(existing.PublicKey)
 		if err != nil {
@@ -770,16 +769,18 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var allowedNets []net.IPNet
-		for _, cidr := range strings.Split(newAllowedIPs, ",") {
-			_, ipNet, _ := net.ParseCIDR(cidr)
-			allowedNets = append(allowedNets, *ipNet)
+		// Determine the effective client_address (new or existing).
+		effectiveAddr := existing.ClientAddress
+		if req.ClientAddress != nil {
+			effectiveAddr = *req.ClientAddress
 		}
+		serverIP := clientAddressTo32(effectiveAddr)
+		_, serverNet, _ := net.ParseCIDR(serverIP)
 
 		err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
 			{
 				PublicKey:         pubKeyBytes,
-				AllowedIPs:        allowedNets,
+				AllowedIPs:        []net.IPNet{*serverNet},
 				ReplaceAllowedIPs: true,
 			},
 		})
@@ -795,7 +796,15 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		dbUpdate.FriendlyName = req.FriendlyName
 	}
 	if needsWgUpdate {
-		dbUpdate.AllowedIPs = &newAllowedIPs
+		effectiveAddr := existing.ClientAddress
+		if req.ClientAddress != nil {
+			effectiveAddr = *req.ClientAddress
+		}
+		serverIP := clientAddressTo32(effectiveAddr)
+		dbUpdate.AllowedIPs = &serverIP
+	}
+	if newClientAllowedIPs != "" {
+		dbUpdate.ClientAllowedIPs = &newClientAllowedIPs
 	}
 	if req.Profile != nil {
 		dbUpdate.Profile = req.Profile
@@ -1203,8 +1212,8 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve allowed IPs: from profile or from request or keep existing.
-	allowedIPsStr := peer.AllowedIPs
+	// Resolve client routing: from profile or from request.
+	clientAllowedIPsStr := req.ClientAllowedIPs
 	hasProfile := req.Profile != nil && *req.Profile != ""
 
 	if hasProfile {
@@ -1222,14 +1231,11 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "cidr_error", err.Error())
 			return
 		}
-		allowedIPsStr = strings.Join(result.Prefixes, ",")
-	} else if len(req.AllowedIPs) > 0 {
-		if err := middleware.ValidateAllowedIPs(req.AllowedIPs); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-		allowedIPsStr = strings.Join(req.AllowedIPs, ",")
+		clientAllowedIPsStr = strings.Join(result.Prefixes, ", ")
 	}
+
+	// Server AllowedIPs = /32 from client_address.
+	serverAllowedIP := clientAddressTo32(req.ClientAddress)
 
 	// Validate friendly_name if provided.
 	friendlyName := peer.FriendlyName
@@ -1261,8 +1267,8 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 
 	// Build DB update with all provided fields.
 	dbUpdate := &storage.PeerUpdate{
-		FriendlyName: &friendlyName,
-		AllowedIPs:   &allowedIPsStr,
+		FriendlyName:  &friendlyName,
+		AllowedIPs:    &serverAllowedIP,
 		ClientAddress: &req.ClientAddress,
 	}
 	enabled := true
@@ -1283,8 +1289,8 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 	if req.PersistentKeepalive != nil {
 		dbUpdate.PersistentKeepalive = &req.PersistentKeepalive
 	}
-	if req.ClientAllowedIPs != "" {
-		dbUpdate.ClientAllowedIPs = &req.ClientAllowedIPs
+	if clientAllowedIPsStr != "" {
+		dbUpdate.ClientAllowedIPs = &clientAllowedIPsStr
 	}
 
 	// Update DB: apply all fields + enabled=true, auto_discovered=false.
@@ -1298,22 +1304,15 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Configure wgctrl with AllowedIPs + endpoint + PKA.
+	// Configure wgctrl with server AllowedIPs (/32) + endpoint + PKA.
 	pubKeyBytes, err := wireguard.ParseKey(peer.PublicKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "key_parse_error", err.Error())
 		return
 	}
 
-	var allowedNets []net.IPNet
-	if allowedIPsStr != "" {
-		for _, cidr := range strings.Split(allowedIPsStr, ",") {
-			cidr = strings.TrimSpace(cidr)
-			if _, ipNet, parseErr := net.ParseCIDR(cidr); parseErr == nil {
-				allowedNets = append(allowedNets, *ipNet)
-			}
-		}
-	}
+	_, serverNet, _ := net.ParseCIDR(serverAllowedIP)
+	allowedNets := []net.IPNet{*serverNet}
 
 	wgCfg := wireguard.PeerConfig{
 		PublicKey:         pubKeyBytes,
@@ -1411,8 +1410,6 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
-
 
 // Health handles GET /api/health.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
@@ -1589,6 +1586,16 @@ func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
 	return peers, nil
 }
 
+// clientAddressTo32 strips the subnet mask from a client_address CIDR (e.g. "10.0.10.3/24")
+// and returns a /32 string (e.g. "10.0.10.3/32") suitable for server [Peer] AllowedIPs.
+func clientAddressTo32(clientAddress string) string {
+	ip, _, err := net.ParseCIDR(clientAddress)
+	if err != nil {
+		return clientAddress // fallback: return as-is
+	}
+	return ip.String() + "/32"
+}
+
 // peerToResponse converts a storage Peer to an API PeerResponse.
 func peerToResponse(p storage.Peer) PeerResponse {
 	var allowedIPs []string
@@ -1617,4 +1624,3 @@ func peerToResponse(p storage.Peer) PeerResponse {
 		ClientAllowedIPs: p.ClientAllowedIPs,
 	}
 }
-

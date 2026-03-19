@@ -132,10 +132,10 @@ func TestListPeers_WithDBPeers(t *testing.T) {
 
 	// Insert a peer directly into DB.
 	_, err := db.CreatePeer(&storage.Peer{
-		PublicKey:     "test-pub-key",
-		FriendlyName:  "Test Peer",
-		AllowedIPs:    "10.0.0.2/32",
-		Enabled:       true,
+		PublicKey:    "test-pub-key",
+		FriendlyName: "Test Peer",
+		AllowedIPs:   "10.0.0.2/32",
+		Enabled:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,10 +173,10 @@ func TestListPeers_JoinsLiveData(t *testing.T) {
 	pubKey := peerKey.PublicKey()
 
 	_, err = db.CreatePeer(&storage.Peer{
-		PublicKey:     pubKey.String(),
-		FriendlyName:  "Live Peer",
-		AllowedIPs:    "10.0.0.2/32",
-		Enabled:       true,
+		PublicKey:    pubKey.String(),
+		FriendlyName: "Live Peer",
+		AllowedIPs:   "10.0.0.2/32",
+		Enabled:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -276,8 +276,8 @@ func TestCreatePeer_WithProfile(t *testing.T) {
 
 	// Create a profile first.
 	if err := db.CreateProfile(&storage.Profile{
-		Name:       "nas-only",
-		AllowedIPs: []string{"10.0.0.0/24"},
+		Name:        "nas-only",
+		AllowedIPs:  []string{"10.0.0.0/24"},
 		ExcludeIPs:  []string{},
 		Description: "NAS access",
 	}); err != nil {
@@ -368,10 +368,10 @@ func TestDeletePeer(t *testing.T) {
 	// Create a peer with a valid base64 key.
 	key, _ := wgtypes.GeneratePrivateKey()
 	id, err := db.CreatePeer(&storage.Peer{
-		PublicKey:     key.PublicKey().String(),
-		FriendlyName:  "To Delete",
-		AllowedIPs:    "10.0.0.2/32",
-		Enabled:       true,
+		PublicKey:    key.PublicKey().String(),
+		FriendlyName: "To Delete",
+		AllowedIPs:   "10.0.0.2/32",
+		Enabled:      true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,6 @@ func TestDeletePeer_InvalidID(t *testing.T) {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
-
 
 func itoa(i int64) string {
 	return fmt.Sprintf("%d", i)
@@ -456,22 +455,25 @@ func TestUpdatePeer_MetadataOnly(t *testing.T) {
 	}
 }
 
-func TestUpdatePeer_AllowedIPsChange(t *testing.T) {
+func TestUpdatePeer_ClientAddressChange(t *testing.T) {
 	h, db := newTestHandlers(t)
 	router := NewRouter(h)
 
 	key, _ := wgtypes.GeneratePrivateKey()
 	id, err := db.CreatePeer(&storage.Peer{
-		PublicKey:    key.PublicKey().String(),
-		FriendlyName: "IP Change",
-		AllowedIPs:   "10.0.0.2/32",
-		Enabled:      true,
+		PublicKey:        key.PublicKey().String(),
+		FriendlyName:     "IP Change",
+		AllowedIPs:       "10.0.10.2/32",
+		ClientAddress:    "10.0.10.2/24",
+		ClientAllowedIPs: "10.0.0.0/8",
+		Enabled:          true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	body := `{"allowed_ips":["10.0.0.0/24","192.168.1.0/24"]}`
+	// Update client_address — should auto-derive new server AllowedIPs /32.
+	body := `{"client_address":"10.0.10.5/24"}`
 	req := httptest.NewRequest("PUT", "/api/peers/"+itoa(id), strings.NewReader(body))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -482,8 +484,13 @@ func TestUpdatePeer_AllowedIPsChange(t *testing.T) {
 
 	var resp PeerResponse
 	json.NewDecoder(w.Body).Decode(&resp)
-	if len(resp.AllowedIPs) != 2 {
-		t.Errorf("AllowedIPs: got %v, want 2 entries", resp.AllowedIPs)
+	// Server AllowedIPs should be the new /32.
+	if len(resp.AllowedIPs) != 1 || resp.AllowedIPs[0] != "10.0.10.5/32" {
+		t.Errorf("AllowedIPs: got %v, want [10.0.10.5/32]", resp.AllowedIPs)
+	}
+	// Client address should be updated.
+	if resp.ClientAddress != "10.0.10.5/24" {
+		t.Errorf("ClientAddress: got %q, want %q", resp.ClientAddress, "10.0.10.5/24")
 	}
 }
 
@@ -597,7 +604,6 @@ func TestRotateKeys_Success(t *testing.T) {
 		t.Errorf("peer ID changed: got %d, want %d", updated.ID, id)
 	}
 }
-
 
 func TestStats_WithPeers(t *testing.T) {
 	db, err := storage.NewDB(":memory:")

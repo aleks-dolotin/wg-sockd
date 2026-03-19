@@ -41,6 +41,7 @@
 
 - [Project Overview](./project-overview.md)
 - [Architecture](./architecture.md)
+- [WireGuard Protocol and Kernel API](./wireguard-protocol.md)
 - [Authentication](./authentication.md)
 - [Profiles and Configuration Cascade](./profiles-and-cascade.md)
 - [Source Tree Analysis](./source-tree-analysis.md)

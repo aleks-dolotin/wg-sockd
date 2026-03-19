@@ -18,20 +18,16 @@ func newTestDB(t *testing.T) *DB {
 func TestNewDB_InMemory(t *testing.T) {
 	db := newTestDB(t)
 
-	// Verify schema_version table exists and has migration recorded.
-	var count int
-	err := db.Conn().QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count)
-	if err != nil {
-		t.Fatalf("querying schema_version: %v", err)
-	}
-	if count != 7 {
-		t.Errorf("expected 7 migrations recorded, got %d", count)
-	}
-
 	// Verify peers table exists.
-	_, err = db.Conn().Exec("SELECT COUNT(*) FROM peers")
+	_, err := db.Conn().Exec("SELECT COUNT(*) FROM peers")
 	if err != nil {
 		t.Fatalf("peers table should exist: %v", err)
+	}
+
+	// Verify profiles table exists.
+	_, err = db.Conn().Exec("SELECT COUNT(*) FROM profiles")
+	if err != nil {
+		t.Fatalf("profiles table should exist: %v", err)
 	}
 }
 
@@ -39,10 +35,10 @@ func TestCreatePeer_And_GetByPubKey(t *testing.T) {
 	db := newTestDB(t)
 
 	p := &Peer{
-		PublicKey:     "abc123pubkey",
-		FriendlyName:  "Alice Laptop",
-		AllowedIPs:    "10.0.0.2/32",
-		Enabled:       true,
+		PublicKey:    "abc123pubkey",
+		FriendlyName: "Alice Laptop",
+		AllowedIPs:   "10.0.0.2/32",
+		Enabled:      true,
 	}
 
 	id, err := db.CreatePeer(p)
@@ -209,7 +205,6 @@ func TestUpsertPeerFromReconcile_PreservesEndpointAndPKA(t *testing.T) {
 	}
 }
 
-
 func TestUpdatePeer(t *testing.T) {
 	db := newTestDB(t)
 
@@ -301,10 +296,10 @@ func TestCreatePeer_WithoutEndpointAndPKA_Defaults(t *testing.T) {
 	db := newTestDB(t)
 
 	p := &Peer{
-		PublicKey:     "ep-key-default",
-		FriendlyName:  "BasicPeer",
-		AllowedIPs:    "10.0.0.3/32",
-		Enabled:       true,
+		PublicKey:    "ep-key-default",
+		FriendlyName: "BasicPeer",
+		AllowedIPs:   "10.0.0.3/32",
+		Enabled:      true,
 	}
 
 	_, err := db.CreatePeer(p)
