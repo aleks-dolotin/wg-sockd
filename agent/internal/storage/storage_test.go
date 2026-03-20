@@ -410,3 +410,48 @@ func TestListPeers_IncludesNewFields(t *testing.T) {
 		t.Errorf("ClientDNS: got %q, want %q", peers[0].ClientDNS, "8.8.8.8")
 	}
 }
+
+func TestListClientAddresses(t *testing.T) {
+	db := newTestDB(t)
+
+	// Empty DB — should return empty slice.
+	addrs, err := db.ListClientAddresses()
+	if err != nil {
+		t.Fatalf("ListClientAddresses (empty): %v", err)
+	}
+	if len(addrs) != 0 {
+		t.Errorf("expected 0 addresses, got %d", len(addrs))
+	}
+
+	// Insert peers — some with client_address, some without.
+	peers := []*Peer{
+		{PublicKey: "addr-key-1", FriendlyName: "A", AllowedIPs: "10.0.10.3/32", Enabled: true, ClientAddress: "10.0.10.3/24"},
+		{PublicKey: "addr-key-2", FriendlyName: "B", AllowedIPs: "10.0.10.4/32", Enabled: true, ClientAddress: "10.0.10.4/24"},
+		{PublicKey: "addr-key-3", FriendlyName: "C", AllowedIPs: "10.0.10.5/32", Enabled: true, ClientAddress: ""}, // empty
+	}
+	for _, p := range peers {
+		if _, err := db.CreatePeer(p); err != nil {
+			t.Fatalf("CreatePeer %s: %v", p.PublicKey, err)
+		}
+	}
+
+	addrs, err = db.ListClientAddresses()
+	if err != nil {
+		t.Fatalf("ListClientAddresses: %v", err)
+	}
+	if len(addrs) != 2 {
+		t.Fatalf("expected 2 addresses (excluding empty), got %d", len(addrs))
+	}
+
+	// Verify values.
+	addrSet := make(map[string]bool)
+	for _, a := range addrs {
+		addrSet[a] = true
+	}
+	if !addrSet["10.0.10.3/24"] {
+		t.Error("missing 10.0.10.3/24")
+	}
+	if !addrSet["10.0.10.4/24"] {
+		t.Error("missing 10.0.10.4/24")
+	}
+}

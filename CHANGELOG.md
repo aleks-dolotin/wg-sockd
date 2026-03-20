@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.19.0] — 2026-03-20
+
+### Added
+
+- **Auto-fill Tunnel Address** — new API endpoint `GET /api/peers/next-address` computes the next free IP in the WireGuard interface subnet. The peer creation form auto-fills the Tunnel Address field on load.
+- **Tunnel Address column in Peers table** — replaces Client Routing column. Default sort is now by tunnel address (numeric IP order) instead of name.
+- **Dev mode documentation** — `docs/development-guide.md` now includes Dev Mode section with correct `WG_SOCKD_SOCKET` instructions.
+- **Release process documentation** — `docs/release-process.md` describes the full release workflow.
+- **Tests** — `TestNextAddress_InterfaceNotFound` (handler) and `TestListClientAddresses` (storage).
+
+### Changed
+
+- **PeersPage table** — removed "Client Routing" column, added "Tunnel Address" as first sortable column with numeric IP sorting.
+- **Default sort order** — peers list now sorts by `tunnel_address` (ascending) instead of `name`.
+
+### Fixed
+
+- **PeerForm useEffect cleanup** — added `let ignore = false` pattern to prevent state update on unmounted component.
+- **IPv6 status code** — `NextAddress` returns 501 (Not Implemented) instead of 500 for IPv6-only interfaces.
+- **Safety cap for large subnets** — `NextAddress` scans at most 65535 addresses to avoid blocking on /8 subnets.
+
 ## [v0.16.0] — 2026-03-19
 
 ### Architecture Fix: Server AllowedIPs

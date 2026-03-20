@@ -96,6 +96,25 @@ curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
 ./bin/wg-sockd-ctl peers list
 ```
 
+### Dev Mode (macOS, no WireGuard)
+
+For local frontend development without a real WireGuard interface. Uses an in-memory WireGuard mock.
+
+**Terminal 1 — backend (in-memory WireGuard):**
+```bash
+make build-dev
+```
+This builds the agent with `dev_wg` tag, creates `./tmp/dev-config.yaml` on first run, and starts listening on `./tmp/wg-sockd.sock`.
+
+**Terminal 2 — frontend (Vite dev server):**
+```bash
+cd ui/web && WG_SOCKD_SOCKET=../../tmp/wg-sockd.sock npm run dev
+```
+
+Open http://localhost:5173
+
+> **Important:** The `WG_SOCKD_SOCKET` env var tells Vite to proxy `/api/*` requests through the Unix socket. Without it, Vite proxies to `localhost:8080` which is not available in dev mode — you will see a login form because the auth session check fails.
+
 ### Web UI
 
 ```bash
@@ -106,7 +125,7 @@ npm run build   # Production build → dist/
 npm run lint    # ESLint
 ```
 
-The dev server expects the agent API to be available. Configure the Vite proxy in `vite.config.js` to forward `/api/*` to the agent socket.
+The dev server expects the agent API to be available via Unix socket. Set `WG_SOCKD_SOCKET` to forward `/api/*` (see Dev Mode above).
 
 ## Installation (systemd)
 

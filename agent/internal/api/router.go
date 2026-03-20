@@ -15,6 +15,7 @@ func NewRouter(h *Handlers) *http.ServeMux {
 	mux.HandleFunc("GET /api/peers", h.ListPeers)
 	mux.HandleFunc("POST /api/peers", h.CreatePeer)
 	mux.HandleFunc("POST /api/peers/batch", h.BatchCreatePeers)
+	mux.HandleFunc("GET /api/peers/next-address", h.NextAddress)
 	mux.HandleFunc("GET /api/peers/{id}", h.GetPeer)
 	mux.HandleFunc("DELETE /api/peers/{id}", h.DeletePeer)
 	mux.HandleFunc("PUT /api/peers/{id}", h.UpdatePeer)

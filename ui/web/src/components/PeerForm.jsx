@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useProfiles } from '@/api/hooks'
 import { useConnection } from '@/components/ConnectionContext'
+import { fetchNextAddress } from '@/api/client'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import FieldLabel from '@/components/FieldLabel'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,22 @@ export default function PeerForm({ initialData, mode = 'create', peer, onSubmit,
   const { isConnected } = useConnection()
   const hasProfiles = profiles && profiles.length > 0
   const selectedProfile = profiles?.find(p => p.name === form.profile)
+
+  // Auto-fill tunnel address on create.
+  useEffect(() => {
+    if (mode !== 'create' || form.clientAddress) return
+
+    let ignore = false
+    fetchNextAddress()
+      .then(data => {
+        if (!ignore && data?.next_address) {
+          setForm(f => f.clientAddress ? f : { ...f, clientAddress: data.next_address })
+        }
+      })
+      .catch(() => {}) // silently ignore — user can fill manually
+
+    return () => { ignore = true }
+  }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyProfile(profileName) {
     const prof = profiles?.find(p => p.name === profileName)

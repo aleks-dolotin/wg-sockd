@@ -1596,6 +1596,109 @@ func clientAddressTo32(clientAddress string) string {
 	return ip.String() + "/32"
 }
 
+// NextAddress handles GET /api/peers/next-address.
+// Returns the next available tunnel IP address within the WireGuard interface subnet.
+// Uses net.InterfaceByName to read the subnet from the OS. Returns 404 in dev mode
+// when the WireGuard interface is not available. Returns 409 if the subnet is exhausted.
+func (h *Handlers) NextAddress(w http.ResponseWriter, r *http.Request) {
+	// Step 1: get subnet from OS interface.
+	iface, err := net.InterfaceByName(h.cfg.Interface)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "interface_not_found",
+			fmt.Sprintf("Interface %q not available: %v", h.cfg.Interface, err))
+		return
+	}
+	addrs, err := iface.Addrs()
+	if err != nil || len(addrs) == 0 {
+		writeError(w, http.StatusNotFound, "no_address",
+			fmt.Sprintf("No addresses on interface %q", h.cfg.Interface))
+		return
+	}
+
+	var subnet *net.IPNet
+	var occupied = make(map[[4]byte]bool)
+
+	for _, addr := range addrs {
+		ip, ipNet, err := net.ParseCIDR(addr.String())
+		if err != nil {
+			continue
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			continue
+		}
+		subnet = ipNet
+		var key [4]byte
+		copy(key[:], ip4)
+		occupied[key] = true // interface address is occupied
+		break
+	}
+
+	if subnet == nil {
+		writeError(w, http.StatusNotFound, "no_ipv4", "No IPv4 address on interface")
+		return
+	}
+
+	// Step 2: collect occupied addresses from DB.
+	peerAddrs, err := h.store.ListClientAddresses()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+	for _, addr := range peerAddrs {
+		ip, _, err := net.ParseCIDR(addr)
+		if err != nil {
+			continue
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			continue
+		}
+		var key [4]byte
+		copy(key[:], ip4)
+		occupied[key] = true
+	}
+
+	// Step 3: find next free address.
+	ones, bits := subnet.Mask.Size()
+	if bits != 32 {
+		writeError(w, http.StatusNotImplemented, "ipv6_not_supported", "Only IPv4 subnets are supported")
+		return
+	}
+	netIP := subnet.IP.To4()
+	base := uint32(netIP[0])<<24 | uint32(netIP[1])<<16 | uint32(netIP[2])<<8 | uint32(netIP[3])
+	totalHosts := (1 << (32 - ones)) - 2
+
+	if totalHosts <= 0 {
+		writeError(w, http.StatusConflict, "subnet_full", "Subnet too small for peer allocation")
+		return
+	}
+
+	// Safety cap: avoid scanning millions of addresses for very large subnets (/8).
+	scanLimit := totalHosts
+	if scanLimit > 65535 {
+		scanLimit = 65535
+	}
+
+	for i := 1; i <= scanLimit; i++ {
+		n := base + uint32(i)
+		candidate := net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
+		var key [4]byte
+		copy(key[:], candidate.To4())
+		if !occupied[key] {
+			result := fmt.Sprintf("%s/%d", candidate.String(), ones)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"next_address": result})
+			return
+		}
+	}
+
+	// Subnet exhausted.
+	used := len(occupied)
+	writeError(w, http.StatusConflict, "subnet_full",
+		fmt.Sprintf("No free addresses in %s (%d/%d used)", subnet.String(), used, totalHosts))
+}
+
 // peerToResponse converts a storage Peer to an API PeerResponse.
 func peerToResponse(p storage.Peer) PeerResponse {
 	var allowedIPs []string

@@ -145,9 +145,9 @@ export default function PeersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <SortableHead label="Tunnel Address" field="tunnel_address" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <SortableHead label="Name" field="name" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <TableHead>Public Key</TableHead>
-                  <TableHead>Client Routing</TableHead>
                   <SortableHead label="Profile" field="profile" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <SortableHead label="Status" field="status" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
                   <SortableHead label="Transfer" field="transfer" currentField={sortField} currentDir={sortDir} onToggle={toggleSort} />
@@ -159,6 +159,7 @@ export default function PeersPage() {
                   const online = isPeerOnline(peer.latest_handshake)
                   return (
                     <TableRow key={peer.id} className={!peer.enabled ? 'opacity-50' : ''}>
+                      <TableCell className="font-mono text-xs">{peer.client_address || '—'}</TableCell>
                       <TableCell className="font-medium">
                         {peer.friendly_name || '—'}
                         {peer.auto_discovered && (
@@ -166,7 +167,6 @@ export default function PeersPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{truncateKey(peer.public_key)}</TableCell>
-                      <TableCell className="text-xs max-w-[200px] truncate">{peer.client_allowed_ips || '—'}</TableCell>
                       <TableCell>{peer.profile || '—'}</TableCell>
                       <TableCell>
                         <Badge variant={online ? 'default' : 'secondary'}>{online ? 'Online' : 'Offline'}</Badge>

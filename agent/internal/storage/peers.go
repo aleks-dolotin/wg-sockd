@@ -393,3 +393,22 @@ func (db *DB) CountPeersWithEmptyClientAddress() (int, error) {
 	return count, nil
 }
 
+// ListClientAddresses returns all non-empty client_address values from the peers table.
+func (db *DB) ListClientAddresses() ([]string, error) {
+	rows, err := db.conn.Query("SELECT client_address FROM peers WHERE client_address != ''")
+	if err != nil {
+		return nil, fmt.Errorf("listing client addresses: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var addrs []string
+	for rows.Next() {
+		var addr string
+		if err := rows.Scan(&addr); err != nil {
+			return nil, fmt.Errorf("scanning client address: %w", err)
+		}
+		addrs = append(addrs, addr)
+	}
+	return addrs, rows.Err()
+}
+

@@ -140,9 +140,12 @@ build-dev:
 	@touch ./tmp/wg0.conf
 	./$(BIN_DIR)/$(BINARY) --config ./tmp/dev-config.yaml --dev-wg
 
-# Bump Helm chart version in Chart.yaml, docs, and README.
+# Bump version in VERSION file, Chart.yaml, values.yaml, docs, and README.
 # Reads current version from VERSION file and auto-increments the minor part.
 # Override: make bump-version VERSION_NEW=1.0.0
+#
+# Chart.yaml and values.yaml use wildcard version patterns (not exact OLD match)
+# to self-heal if they ever drift from VERSION file.
 bump-version:
 	@OLD=$$(cat VERSION); \
 	if [ -n "$(VERSION_NEW)" ]; then \
@@ -156,8 +159,8 @@ bump-version:
 	echo "Bumping $$OLD → $$NEW"; \
 	echo "$$NEW" > VERSION; \
 	sed -i.bak \
-		-e "s/^version: $$OLD$$/version: $$NEW/" \
-		-e "s/^appVersion: \"$$OLD\"$$/appVersion: \"$$NEW\"/" \
+		-e "s/^version: [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$$/version: $$NEW/" \
+		-e "s/^appVersion: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"$$/appVersion: \"$$NEW\"/" \
 		chart/Chart.yaml && rm -f chart/Chart.yaml.bak; \
 	sed -i.bak \
 		-e "s/tag: \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/tag: \"$$NEW\"/" \

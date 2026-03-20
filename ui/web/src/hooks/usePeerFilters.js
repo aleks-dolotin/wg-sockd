@@ -9,7 +9,7 @@ export function usePeerFilters() {
   const statusFilter = searchParams.get('status') || 'all'
   const profileFilter = searchParams.get('profile') || 'all'
   const autoFilter = searchParams.get('filter') === 'auto_discovered' ? 'yes' : (searchParams.get('auto') || 'all')
-  const sortField = searchParams.get('sort') || 'name'
+  const sortField = searchParams.get('sort') || 'tunnel_address'
   const sortDir = searchParams.get('dir') || 'asc'
 
   // Debounced search input value
@@ -48,7 +48,7 @@ export function usePeerFilters() {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('filter')
-      const currentField = prev.get('sort') || 'name'
+      const currentField = prev.get('sort') || 'tunnel_address'
       const currentDir = prev.get('dir') || 'asc'
       if (currentField === field) {
         next.set('dir', currentDir === 'asc' ? 'desc' : 'asc')
@@ -99,9 +99,19 @@ export function usePeerFilters() {
     }
 
     // Sort
+    const parseIp = (addr) => {
+      if (!addr) return 0
+      const ip = addr.split('/')[0]
+      const parts = ip.split('.')
+      return parts.reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0
+    }
+
     result.sort((a, b) => {
       let cmp = 0
       switch (sortField) {
+        case 'tunnel_address':
+          cmp = parseIp(a.client_address) - parseIp(b.client_address)
+          break
         case 'name':
           cmp = (a.friendly_name || '').localeCompare(b.friendly_name || '')
           break

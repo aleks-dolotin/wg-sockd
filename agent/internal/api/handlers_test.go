@@ -886,3 +886,25 @@ func TestUpdatePeer_Disable(t *testing.T) {
 		t.Error("Enabled should be false after update")
 	}
 }
+
+// --- NextAddress tests ---
+
+func TestNextAddress_InterfaceNotFound(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	// Default config uses "wg0" which doesn't exist in test env.
+	router := NewRouter(h)
+
+	req := httptest.NewRequest("GET", "/api/peers/next-address", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status: got %d, want %d. Body: %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+
+	var errResp map[string]string
+	json.NewDecoder(w.Body).Decode(&errResp)
+	if errResp["error"] != "interface_not_found" {
+		t.Errorf("error code: got %q, want %q", errResp["error"], "interface_not_found")
+	}
+}

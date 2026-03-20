@@ -70,7 +70,7 @@ Key security settings:
 - `ProtectSystem=strict` — read-only filesystem except allowed paths
 - `NoNewPrivileges=yes` — prevent privilege escalation
 - `ReadWritePaths=/var/lib/wg-sockd /var/run/wg-sockd /etc/wireguard` — minimal write access
-- `RuntimeDirectory` intentionally omitted — the agent creates `/run/wg-sockd/` on startup. This keeps the directory inode stable so Kubernetes hostPath mounts survive agent restarts without pod redeployment.
+- `RuntimeDirectory=wg-sockd` — creates `/run/wg-sockd/` before the process starts (survives reboots)
 
 ### Filesystem Layout
 
@@ -242,7 +242,7 @@ sudo systemctl enable --now wg-sockd
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.18.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.19.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -259,7 +259,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.18.0"
+  tag: "0.19.0"
 
 nodeName: my-wg-node
 
@@ -284,7 +284,7 @@ Then open `http://localhost:8080`.
 
 ```bash
 helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.18.0 -n wg-sockd
+  --version 0.19.0 -n wg-sockd
 ```
 
 To also upgrade the agent on the host node, re-run the install script as described in the [Standalone Upgrade](#upgrade) section.
@@ -366,14 +366,12 @@ This validates config parsing, ui_listen format, directory permissions, and Wire
 - If duplicated, manually edit `/etc/wg-sockd/config.yaml` to remove the extra entries
 
 **UI proxy pod can't connect after agent restart (Kubernetes)**
-- The agent creates `/run/wg-sockd/` on startup and cleans up stale sockets. The systemd unit intentionally does not use `RuntimeDirectory` to keep the directory inode stable across agent restarts. This allows Kubernetes hostPath mounts to survive without pod redeployment.
-- If you see `no such file or directory` in UI proxy logs after agent restart, restart the pod:
+- After a node reboot, if the agent fails with `NAMESPACE` / exit code 226, check that the systemd unit includes `RuntimeDirectory=wg-sockd`. Re-run the install script to update the unit file.
+- If you see `no such file or directory` in UI proxy logs, restart the pod:
 
 ```bash
 kubectl rollout restart deployment/wg-sockd-ui -n wg-sockd
 ```
-
-- This should only happen if the agent was upgraded from a version that used `RuntimeDirectory`. New installs are not affected.
 
 **Environment variable override not working**
 - Bool values must be: `true`/`false`/`1`/`0`/`t`/`f` (case-insensitive)

@@ -35,6 +35,7 @@ export const deletePeer = (id) => request(`/peers/${id}`, { method: 'DELETE' })
 export const rotatePeerKeys = (id) => request(`/peers/${id}/rotate-keys`, { method: 'POST' })
 export const approvePeer = (id, body) => request(`/peers/${id}/approve`, { method: 'POST', body: body ? JSON.stringify(body) : undefined, headers: body ? { 'Content-Type': 'application/json' } : undefined })
 export const batchCreatePeers = (peers) => request('/peers/batch', { method: 'POST', body: JSON.stringify({ peers }) })
+export const fetchNextAddress = () => request('/peers/next-address')
 
 // --- Profiles ---
 export const fetchProfiles = () => request('/profiles')
