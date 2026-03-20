@@ -12,9 +12,7 @@ ExecStart=/usr/local/bin/wg-sockd --config /etc/wg-sockd/config.yaml
 Restart=on-failure
 RestartSec=2
 WatchdogSec=30
-# RuntimeDirectory intentionally omitted — the agent creates /run/wg-sockd/ on startup
-# and cleans up the stale socket file. This ensures a stable directory inode so that
-# Kubernetes hostPath mounts survive agent restarts without pod redeployment.
+RuntimeDirectory=wg-sockd
 StateDirectory=wg-sockd
 ConfigurationDirectory=wg-sockd
 ProtectSystem=strict
