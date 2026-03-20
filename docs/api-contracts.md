@@ -22,6 +22,15 @@ No TCP exposure by default. Use `curl --unix-socket` for direct access.
 | POST | `/api/profiles` | Create profile |
 | PUT | `/api/profiles/{name}` | Update profile |
 | DELETE | `/api/profiles/{name}` | Delete profile (fails if peers use it) |
+| POST | `/api/auth/login` | Password login — returns session cookie |
+| POST | `/api/auth/logout` | Invalidate current session |
+| GET | `/api/auth/session` | Check session status and auth configuration |
+| POST | `/api/auth/webauthn/register/begin` | Start passkey registration (requires session) |
+| POST | `/api/auth/webauthn/register/finish` | Complete passkey registration (requires session) |
+| POST | `/api/auth/webauthn/login/begin` | Start passkey authentication |
+| POST | `/api/auth/webauthn/login/finish` | Complete passkey authentication — returns session cookie |
+| GET | `/api/auth/webauthn/credentials` | List registered passkeys (requires session) |
+| DELETE | `/api/auth/webauthn/credentials/{id}` | Remove a registered passkey (requires session) |
 
 ## Health
 
@@ -385,10 +394,11 @@ All errors return JSON with `error` and optional `message` fields:
 
 ## Authentication
 
-Authentication is optional and disabled by default. When enabled, the agent supports two methods:
+Authentication is optional and disabled by default. When enabled, the agent supports three methods:
 
 - **Basic auth** — username/password login via `POST /api/auth/login`, which issues a session cookie (`wg_sockd_session`).
 - **Bearer token** — pass `Authorization: Bearer <token>` on every request. No session required.
+- **Passkeys / WebAuthn** — passwordless login via browser biometrics or security keys. Enabled via `auth.webauthn.enabled`.
 
 All `/api/*` endpoints (except `/api/health` and `/api/auth/*`) require authentication when any auth method is enabled. Unix socket requests are exempt by default (`skip_unix_socket: true`).
 
@@ -455,7 +465,8 @@ Check the current session status. Use this to determine whether the server requi
   "username": "admin",
   "expires_at": "2026-03-18T16:00:00Z",
   "auth_required": true,
-  "webauthn_available": false,
+  "webauthn_available": true,
+  "webauthn_enabled": true,
   "session_ttl_seconds": 900
 }
 ```
@@ -466,6 +477,7 @@ Check the current session status. Use this to determine whether the server requi
 {
   "auth_required": false,
   "webauthn_available": false,
+  "webauthn_enabled": false,
   "session_ttl_seconds": 900
 }
 ```
@@ -476,10 +488,239 @@ Check the current session status. Use this to determine whether the server requi
 {
   "error": "unauthorized",
   "auth_required": true,
-  "webauthn_available": false,
+  "webauthn_available": true,
+  "webauthn_enabled": true,
   "session_ttl_seconds": 900
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `webauthn_enabled` | `true` when `auth.webauthn.enabled: true` in config. Used by Settings page to show passkey management UI. |
+| `webauthn_available` | `true` when WebAuthn is enabled AND at least one passkey is registered. Used by Login page to show the Passkey button and Conditional UI. |
+
+## WebAuthn / Passkey Endpoints
+
+All WebAuthn endpoints return `400 { "error": "webauthn_disabled" }` when `auth.webauthn.enabled: false`.
+
+Protected endpoints (`register/*`, `credentials`) verify the session cookie internally — they are not covered by the global auth middleware but require a valid `wg_sockd_session` cookie.
+
+### POST /api/auth/webauthn/register/begin
+
+Start a passkey registration ceremony. **Requires an active session** (admin must be logged in via password).
+
+**Request:**
+
+```json
+{ "friendly_name": "MacBook Touch ID" }
+```
+
+`friendly_name` is optional (max 64 chars). If omitted, the server generates a name from the request's `User-Agent`.
+
+**Response 200:**
+
+```json
+{
+  "publicKey": {
+    "challenge": "<base64url>",
+    "rp": { "id": "vpn.example.com", "name": "My VPN" },
+    "user": { "id": "<base64url>", "name": "admin", "displayName": "My VPN" },
+    "pubKeyCredParams": [
+      { "type": "public-key", "alg": -7 },
+      { "type": "public-key", "alg": -257 }
+    ],
+    "authenticatorSelection": {
+      "residentKey": "required",
+      "userVerification": "preferred"
+    },
+    "attestation": "none",
+    "excludeCredentials": []
+  },
+  "token": "<opaque-challenge-token>"
+}
+```
+
+Pass `publicKey` to `navigator.credentials.create()`. Store `token` for the `finish` call.
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled in config |
+| 401 | `unauthorized` | No valid session |
+| 500 | `webauthn_error` | Failed to generate options |
+
+### POST /api/auth/webauthn/register/finish
+
+Complete a passkey registration ceremony. **Requires an active session.**
+
+**Request:**
+
+The `credential` field is the serialized `PublicKeyCredential` from `navigator.credentials.create()`, encoded as a JSON object with base64url binary fields:
+
+```json
+{
+  "credential": {
+    "id": "<base64url-credential-id>",
+    "rawId": "<base64url>",
+    "type": "public-key",
+    "response": {
+      "clientDataJSON": "<base64url>",
+      "attestationObject": "<base64url>"
+    }
+  },
+  "token": "<opaque-challenge-token>",
+  "friendly_name": "MacBook Touch ID"
+}
+```
+
+`friendly_name` in the finish request takes precedence over the value from `begin`.
+
+**Response 200:**
+
+```json
+{
+  "status": "ok",
+  "credential_id": "<base64url>",
+  "friendly_name": "MacBook Touch ID"
+}
+```
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled |
+| 400 | `invalid_token` | Challenge token not found or expired (> 60 s) |
+| 400 | `registration_failed` | Browser credential verification failed |
+| 401 | `unauthorized` | No valid session |
+| 409 | `credential_exists` | This credential ID is already registered |
+| 500 | `internal_error` | CBOR parsing panic or DB error |
+
+### POST /api/auth/webauthn/login/begin
+
+Start a passkey authentication ceremony. No session required.
+
+Rate limited: 5 failures per 60 s per source IP (same limiter as password login).
+
+**Request:** empty body `{}`
+
+**Response 200:**
+
+```json
+{
+  "publicKey": {
+    "challenge": "<base64url>",
+    "rpId": "vpn.example.com",
+    "allowCredentials": [],
+    "userVerification": "preferred",
+    "timeout": 60000
+  },
+  "token": "<opaque-challenge-token>"
+}
+```
+
+`allowCredentials` is always empty — the server uses discoverable credentials (resident keys). Pass `publicKey` to `navigator.credentials.get()` with `mediation: "conditional"` (Conditional UI) or without it (modal flow).
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled |
+| 400 | `no_credentials` | No passkeys registered yet |
+| 429 | `rate_limit_exceeded` | Too many attempts. `Retry-After: 60` header included |
+
+### POST /api/auth/webauthn/login/finish
+
+Complete a passkey authentication ceremony. Creates a session on success.
+
+**Request:**
+
+The `credential` field is the serialized `PublicKeyCredential` from `navigator.credentials.get()`:
+
+```json
+{
+  "credential": {
+    "id": "<base64url-credential-id>",
+    "rawId": "<base64url>",
+    "type": "public-key",
+    "response": {
+      "clientDataJSON": "<base64url>",
+      "authenticatorData": "<base64url>",
+      "signature": "<base64url>",
+      "userHandle": "<base64url>"
+    }
+  },
+  "token": "<opaque-challenge-token>"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "username": "admin",
+  "expires_at": "2026-03-18T16:00:00Z",
+  "session_ttl_seconds": 900
+}
+```
+
+Sets `wg_sockd_session` cookie (same as password login).
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled |
+| 400 | `invalid_token` | Challenge token not found or expired |
+| 401 | `authentication_failed` | Signature verification failed |
+| 500 | `internal_error` | CBOR parsing panic or DB error |
+
+### GET /api/auth/webauthn/credentials
+
+List all registered passkeys. **Requires an active session.**
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "<base64url-credential-id>",
+    "friendly_name": "MacBook Touch ID",
+    "created_at": "2026-03-18T12:00:00Z",
+    "last_used_at": "2026-03-20T09:30:00Z"
+  }
+]
+```
+
+Returns an empty array `[]` when no passkeys are registered.
+
+`last_used_at` is `null` if the passkey has never been used for authentication after initial registration.
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled |
+| 401 | `unauthorized` | No valid session |
+
+### DELETE /api/auth/webauthn/credentials/{id}
+
+Remove a registered passkey by credential ID. **Requires an active session.**
+
+**Response 200:**
+
+```json
+{ "status": "ok" }
+```
+
+**Error responses:**
+
+| Status | Error code | Meaning |
+|--------|------------|---------|
+| 400 | `webauthn_disabled` | WebAuthn not enabled |
+| 401 | `unauthorized` | No valid session |
+| 404 | `not_found` | Credential ID not found |
 
 ## Rate Limiting
 

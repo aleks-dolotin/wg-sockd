@@ -70,6 +70,19 @@ BEGIN
 	SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed: profiles.name is referenced by peers')
 	WHERE EXISTS (SELECT 1 FROM peers WHERE profile = OLD.name);
 END;
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+	id TEXT PRIMARY KEY,
+	public_key BLOB NOT NULL,
+	attestation_type TEXT NOT NULL DEFAULT '',
+	aaguid BLOB NOT NULL DEFAULT '',
+	transport TEXT NOT NULL DEFAULT '',
+	flags INTEGER NOT NULL DEFAULT 0,
+	sign_count INTEGER NOT NULL DEFAULT 0,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_used_at DATETIME,
+	friendly_name TEXT NOT NULL DEFAULT ''
+);
 `
 
 // DB wraps a sql.DB connection.

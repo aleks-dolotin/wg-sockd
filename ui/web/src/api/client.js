@@ -56,6 +56,19 @@ export const login = (username, password) =>
   request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
 export const logout = () => request('/auth/logout', { method: 'POST' })
 
+// --- WebAuthn ---
+export const webauthnRegisterBegin = (friendlyName) =>
+  request('/auth/webauthn/register/begin', { method: 'POST', body: JSON.stringify({ friendly_name: friendlyName || '' }) })
+export const webauthnRegisterFinish = (body) =>
+  request('/auth/webauthn/register/finish', { method: 'POST', body: JSON.stringify(body) })
+export const webauthnLoginBegin = () =>
+  request('/auth/webauthn/login/begin', { method: 'POST', body: JSON.stringify({}) })
+export const webauthnLoginFinish = (body) =>
+  request('/auth/webauthn/login/finish', { method: 'POST', body: JSON.stringify(body) })
+export const webauthnListCredentials = () => request('/auth/webauthn/credentials')
+export const webauthnDeleteCredential = (id) =>
+  request(`/auth/webauthn/credentials/${id}`, { method: 'DELETE' })
+
 // --- Connection status (from Go proxy, not agent) ---
 export const fetchConnectionStatus = () =>
   fetch('/ui/status').then(r => r.json())

@@ -44,7 +44,7 @@ func setupHandlers(t *testing.T) (*AuthHandlers, *SessionStore, string) {
 		nowFunc:     time.Now,
 		done:        make(chan struct{}),
 	}
-	h := NewAuthHandlers(cfg, ss, bv, lr, NoopCredentialCounter())
+	h := NewAuthHandlers(cfg, ss, bv, lr, NoopCredentialCounter(), nil, nil, nil, nil)
 	return h, ss, hashStr
 }
 
@@ -153,7 +153,7 @@ func TestSession_NoAuth(t *testing.T) {
 		MaxSessions: 100,
 	}
 	ss := newTestSessionStore(15*time.Minute, 100)
-	h := NewAuthHandlers(cfg, ss, nil, nil, NoopCredentialCounter())
+	h := NewAuthHandlers(cfg, ss, nil, nil, NoopCredentialCounter(), nil, nil, nil, nil)
 	handler := h.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
@@ -241,7 +241,7 @@ func TestLogin_NoAuthConfigured_Returns400(t *testing.T) {
 		MaxSessions: 100,
 	}
 	ss := newTestSessionStore(15*time.Minute, 100)
-	h := NewAuthHandlers(cfg, ss, nil, nil, NoopCredentialCounter())
+	h := NewAuthHandlers(cfg, ss, nil, nil, NoopCredentialCounter(), nil, nil, nil, nil)
 	handler := h.Handler()
 
 	body, _ := json.Marshal(loginRequest{Username: "admin", Password: "secret"})

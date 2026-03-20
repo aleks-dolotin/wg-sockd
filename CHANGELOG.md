@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.20.0] — 2026-03-20
+
+### Added
+
+- **WebAuthn / Passkey Support** — implemented WebAuthn registration and login in both backend and frontend.
+- **Passkey Management** — expanded `SettingsPage` to manage registered passkeys.
+- **Passwordless Login** — added "Sign in with Passkey" button and conditional UI flow on login page.
+- **Documentation** — updated `docs/authentication.md` with WebAuthn details.
+
+### Changed
+
+- **Login Flow** — merged password and passkey authentication flows.
+- **Storage Schema** — added `webauthn_credentials` table.
+
 ## [v0.19.0] — 2026-03-20
 
 ### Added

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-systemd/v22/daemon"
+	gowebauthn "github.com/go-webauthn/webauthn/webauthn"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/api"
@@ -340,6 +342,7 @@ func main() {
 	// Auth middleware — session store, rate limiter, handlers.
 	var sessionStore *auth.SessionStore
 	var loginRateLimiter *auth.LoginRateLimiter
+	var challengeStore *auth.ChallengeStore
 	if cfg.Auth.AnyEnabled() {
 		sessionStore = auth.NewSessionStore(cfg.Auth.SessionTTL, cfg.Auth.MaxSessions)
 
@@ -355,7 +358,33 @@ func main() {
 			tokenVerifier = auth.NewTokenAuthVerifier(cfg.Auth.Token.Token)
 		}
 
-		authHandlers := auth.NewAuthHandlers(&cfg.Auth, sessionStore, basicVerifier, loginRateLimiter, auth.NoopCredentialCounter())
+		// WebAuthn (Layer 2) — initialize only when enabled.
+		var waLib *gowebauthn.WebAuthn
+		var waCfg *config.WebAuthnConfig
+		credCounter := auth.WebAuthnCredentialCounter(auth.NoopCredentialCounter())
+		if cfg.Auth.WebAuthn.Enabled {
+			waOrigin := cfg.Auth.WebAuthn.Origin
+			u, _ := url.Parse(waOrigin)
+			rpID := u.Hostname()
+			if rpID == "" {
+				rpID = waOrigin
+			}
+			var waErr error
+			waLib, waErr = gowebauthn.New(&gowebauthn.Config{
+				RPID:          rpID,
+				RPDisplayName: cfg.Auth.WebAuthn.DisplayName,
+				RPOrigins:     []string{waOrigin},
+			})
+			if waErr != nil {
+				log.Fatalf("FATAL: initializing WebAuthn: %v", waErr)
+			}
+			waCfg = &cfg.Auth.WebAuthn
+			challengeStore = auth.NewChallengeStore()
+			credCounter = auth.NewSQLiteCredentialCounter(db)
+			log.Printf("Auth: WebAuthn/Passkey enabled (origin=%s)", waOrigin)
+		}
+
+		authHandlers := auth.NewAuthHandlers(&cfg.Auth, sessionStore, basicVerifier, loginRateLimiter, credCounter, waLib, challengeStore, db, waCfg)
 		baseMux.Handle("/api/auth/", authHandlers.Handler())
 
 		authMw := auth.NewMiddleware(sessionStore, tokenVerifier, cfg.Auth.SkipUnixSocket)
@@ -374,7 +403,7 @@ func main() {
 		// then pass mux through unmodified.
 		noAuthSS := auth.NewSessionStore(15*time.Minute, 1)
 		noAuthLR := auth.NewLoginRateLimiter(5, 60*time.Second)
-		noAuthHandlers := auth.NewAuthHandlers(&cfg.Auth, noAuthSS, nil, noAuthLR, auth.NoopCredentialCounter())
+		noAuthHandlers := auth.NewAuthHandlers(&cfg.Auth, noAuthSS, nil, noAuthLR, auth.NoopCredentialCounter(), nil, nil, nil, nil)
 		baseMux.Handle("/api/auth/", noAuthHandlers.Handler())
 		baseMux.Handle("/", mux)
 	}
@@ -521,6 +550,9 @@ func main() {
 		}
 		if loginRateLimiter != nil {
 			loginRateLimiter.Close()
+		}
+		if challengeStore != nil {
+			challengeStore.Close()
 		}
 
 		close(shutdownDone)

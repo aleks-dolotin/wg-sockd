@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -57,7 +59,7 @@ type AuthConfig struct {
 
 // AnyEnabled returns true if at least one authentication method is enabled.
 func (a *AuthConfig) AnyEnabled() bool {
-	return a.Basic.Enabled || a.Token.Enabled
+	return a.Basic.Enabled || a.Token.Enabled || a.WebAuthn.Enabled
 }
 
 // Config holds all agent configuration.
@@ -268,6 +270,28 @@ func (c *Config) ValidateAuth() error {
 	// WebAuthn: enabled but no origin → fatal.
 	if a.WebAuthn.Enabled && a.WebAuthn.Origin == "" {
 		return fmt.Errorf("auth.webauthn.enabled=true but origin is empty — set auth.webauthn.origin to the public URL (e.g. https://vpn.example.com)")
+	}
+
+	// WebAuthn requires basic auth enabled (ADR-2: no standalone WebAuthn, prevents lockout).
+	if a.WebAuthn.Enabled && !a.Basic.Enabled {
+		return fmt.Errorf("auth.webauthn.enabled=true requires auth.basic.enabled=true — WebAuthn cannot be the sole auth method")
+	}
+
+	// Normalize WebAuthn origin: strip trailing slash.
+	if a.WebAuthn.Enabled && a.WebAuthn.Origin != "" {
+		a.WebAuthn.Origin = strings.TrimRight(a.WebAuthn.Origin, "/")
+
+		// Warn on non-HTTPS origin (WebAuthn requires secure context).
+		if !strings.HasPrefix(a.WebAuthn.Origin, "https://") {
+			log.Printf("WARN: auth.webauthn.origin %q does not start with https:// — WebAuthn requires a secure context in production", a.WebAuthn.Origin)
+		}
+
+		// Auto-fill display_name from origin hostname if not set.
+		if a.WebAuthn.DisplayName == "" {
+			if u, err := url.Parse(a.WebAuthn.Origin); err == nil && u.Host != "" {
+				a.WebAuthn.DisplayName = u.Hostname()
+			}
+		}
 	}
 
 	// Warnings (non-fatal).
