@@ -50,17 +50,17 @@ export default function ProfileForm({ initialData, isNew = false, onSubmit, isPe
       <fieldset className="space-y-3">
         <legend className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Network Access (client routing)</legend>
         <div>
-          <FieldLabel hint="Networks peers can reach through VPN. After subtracting Exclude Networks, the result becomes the client's [Peer] AllowedIPs. Example: '10.0.0.0/8' for internal access, '0.0.0.0/0' for full-tunnel.">
+          <FieldLabel hint="Networks peers can reach through VPN. After subtracting Exclude Networks, the result becomes the client's [Peer] AllowedIPs. Example: '10.0.0.0/8' for internal-only access, '0.0.0.0/0' for full-tunnel. When using '0.0.0.0/0', always add 0.0.0.0/8 to Exclude Networks — otherwise the resulting 0.0.0.0/5 breaks client routing.">
             Allowed Networks *
           </FieldLabel>
           <Input value={formData.allowed_ips} onChange={e => setFormData({ ...formData, allowed_ips: e.target.value })}
             placeholder="0.0.0.0/0" required /></div>
         <div>
-          <FieldLabel hint="Subtracted from Allowed Networks. Example: allow '0.0.0.0/0' but exclude '10.0.0.0/8' to route everything except internal traffic through VPN.">
+          <FieldLabel hint="Subtracted from Allowed Networks to compute client [Peer] AllowedIPs. For a split-tunnel that routes all internet traffic except private LANs, set Allowed Networks to '0.0.0.0/0' and exclude RFC 1918 + non-routable: 0.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16. Without 0.0.0.0/8 the resulting 0.0.0.0/5 prefix captures the default gateway and breaks routing.">
             Exclude Networks
           </FieldLabel>
           <Input value={formData.exclude_ips} onChange={e => setFormData({ ...formData, exclude_ips: e.target.value })}
-            placeholder="10.0.0.0/8, 172.16.0.0/12" /></div>
+            placeholder="0.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16" /></div>
       </fieldset>
 
       {/* ── Server-side defaults ── */}

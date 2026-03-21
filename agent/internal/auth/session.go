@@ -9,9 +9,10 @@ import (
 
 // Session represents an authenticated user session.
 type Session struct {
-	Username  string
-	Token     string
-	CreatedAt time.Time
+	Username     string
+	Token        string
+	CreatedAt    time.Time
+	LastActivity time.Time // updated on every successful Get() — sliding window expiry
 }
 
 // SessionStore manages in-memory sessions with TTL expiration and LRU eviction.
@@ -57,14 +58,16 @@ func (s *SessionStore) Create(username string) (string, error) {
 	}
 
 	s.sessions[token] = &Session{
-		Username:  username,
-		Token:     token,
-		CreatedAt: s.nowFunc(),
+		Username:     username,
+		Token:        token,
+		CreatedAt:    s.nowFunc(),
+		LastActivity: s.nowFunc(),
 	}
 	return token, nil
 }
 
 // Get retrieves a session by token. Returns nil, false if not found or expired.
+// Does NOT update LastActivity — call Touch() explicitly for user-initiated requests.
 func (s *SessionStore) Get(token string) (*Session, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,13 +77,25 @@ func (s *SessionStore) Get(token string) (*Session, bool) {
 		return nil, false
 	}
 
-	// Check TTL using monotonic clock (time.Since uses monotonic).
-	if s.nowFunc().Sub(sess.CreatedAt) > s.ttl {
+	// Check TTL against last activity (sliding window).
+	if s.nowFunc().Sub(sess.LastActivity) > s.ttl {
 		delete(s.sessions, token)
 		return nil, false
 	}
 
 	return sess, true
+}
+
+// Touch updates the LastActivity timestamp for the given token, extending
+// the sliding window. Call this only for user-initiated requests, not for
+// background polling (stats, health, connection status).
+func (s *SessionStore) Touch(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if sess, ok := s.sessions[token]; ok {
+		sess.LastActivity = s.nowFunc()
+	}
 }
 
 // Delete removes a session by token.
@@ -110,9 +125,9 @@ func (s *SessionStore) Close() {
 	}
 }
 
-// ExpiresAt returns the expiration time for the given session.
+// ExpiresAt returns the expiration time for the given session (sliding window).
 func (s *SessionStore) ExpiresAt(sess *Session) time.Time {
-	return sess.CreatedAt.Add(s.ttl)
+	return sess.LastActivity.Add(s.ttl)
 }
 
 // TTLSeconds returns the session TTL in seconds.
@@ -132,7 +147,7 @@ func (s *SessionStore) cleanup() {
 			s.mu.Lock()
 			now := s.nowFunc()
 			for token, sess := range s.sessions {
-				if now.Sub(sess.CreatedAt) > s.ttl {
+				if now.Sub(sess.LastActivity) > s.ttl {
 					delete(s.sessions, token)
 				}
 			}

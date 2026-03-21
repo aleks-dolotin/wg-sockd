@@ -24,7 +24,7 @@ func TestMiddleware_SessionCookiePassthrough(t *testing.T) {
 	defer ss.Close()
 	token, _ := ss.Create("admin")
 
-	mw := NewMiddleware(ss, nil, true)
+	mw := NewMiddleware(ss, nil, true, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -43,7 +43,7 @@ func TestMiddleware_BearerTokenPassthrough(t *testing.T) {
 	defer ss.Close()
 	tv := NewTokenAuthVerifier("test-secret-token-32-chars-long!")
 
-	mw := NewMiddleware(ss, tv, true)
+	mw := NewMiddleware(ss, tv, true, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -61,7 +61,7 @@ func TestMiddleware_UnixSocketExempt(t *testing.T) {
 	ss := newTestSessionStore(15*time.Minute, 100)
 	defer ss.Close()
 
-	mw := NewMiddleware(ss, nil, true)
+	mw := NewMiddleware(ss, nil, true, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -79,7 +79,7 @@ func TestMiddleware_UnixSocketNotExemptWhenDisabled(t *testing.T) {
 	ss := newTestSessionStore(15*time.Minute, 100)
 	defer ss.Close()
 
-	mw := NewMiddleware(ss, nil, false) // skipUnixSocket = false
+	mw := NewMiddleware(ss, nil, false, "auto") // skipUnixSocket = false
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -97,7 +97,7 @@ func TestMiddleware_HealthExempt(t *testing.T) {
 	ss := newTestSessionStore(15*time.Minute, 100)
 	defer ss.Close()
 
-	mw := NewMiddleware(ss, nil, false)
+	mw := NewMiddleware(ss, nil, false, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
@@ -114,7 +114,7 @@ func TestMiddleware_ContentNegotiation_Browser302(t *testing.T) {
 	ss := newTestSessionStore(15*time.Minute, 100)
 	defer ss.Close()
 
-	mw := NewMiddleware(ss, nil, false)
+	mw := NewMiddleware(ss, nil, false, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -135,7 +135,7 @@ func TestMiddleware_ContentNegotiation_API401JSON(t *testing.T) {
 	ss := newTestSessionStore(15*time.Minute, 100)
 	defer ss.Close()
 
-	mw := NewMiddleware(ss, nil, false)
+	mw := NewMiddleware(ss, nil, false, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
@@ -165,7 +165,7 @@ func TestMiddleware_ExpiredSessionCookie_Rejects(t *testing.T) {
 	// Advance time past TTL.
 	ss.nowFunc = func() time.Time { return now.Add(16 * time.Minute) }
 
-	mw := NewMiddleware(ss, nil, false)
+	mw := NewMiddleware(ss, nil, false, "auto")
 	handler := mw.Wrap(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)

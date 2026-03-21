@@ -66,6 +66,64 @@ func TestSessionStore_TTLExpiry(t *testing.T) {
 	}
 }
 
+func TestSessionStore_SlidingExpiry(t *testing.T) {
+	now := time.Now()
+	s := newTestSessionStore(15*time.Minute, 100)
+	s.nowFunc = func() time.Time { return now }
+	defer s.Close()
+
+	token, _ := s.Create("admin")
+
+	// 10 minutes later — within TTL, touch the session (simulates user-initiated request).
+	s.nowFunc = func() time.Time { return now.Add(10 * time.Minute) }
+	if _, ok := s.Get(token); !ok {
+		t.Fatal("expected session to be valid at +10min")
+	}
+	s.Touch(token) // explicit touch — only called for user-initiated requests
+
+	// 10 more minutes (20 total from creation, but only 10 from last Touch).
+	s.nowFunc = func() time.Time { return now.Add(20 * time.Minute) }
+	if _, ok := s.Get(token); !ok {
+		t.Fatal("expected session to still be valid at +20min (sliding window: 10min since last touch)")
+	}
+	s.Touch(token)
+
+	// 10 more minutes (30 total, 10 from last Touch at +20).
+	s.nowFunc = func() time.Time { return now.Add(30 * time.Minute) }
+	if _, ok := s.Get(token); !ok {
+		t.Fatal("expected session to still be valid at +30min (10min since last touch at +20)")
+	}
+	s.Touch(token)
+
+	// Now jump 16 minutes from last Touch (+30 → +46).
+	s.nowFunc = func() time.Time { return now.Add(46 * time.Minute) }
+	if _, ok := s.Get(token); ok {
+		t.Fatal("expected session to be expired at +46min (16min since last touch at +30)")
+	}
+}
+
+func TestSessionStore_GetWithoutTouchDoesNotExtend(t *testing.T) {
+	now := time.Now()
+	s := newTestSessionStore(15*time.Minute, 100)
+	s.nowFunc = func() time.Time { return now }
+	defer s.Close()
+
+	token, _ := s.Create("admin")
+
+	// Repeated Get without Touch at 10 min — session should still expire at 15 min from creation.
+	s.nowFunc = func() time.Time { return now.Add(10 * time.Minute) }
+	if _, ok := s.Get(token); !ok {
+		t.Fatal("expected session to be valid at +10min")
+	}
+	// No Touch — simulates background polling.
+
+	// At 16 min — should be expired (15 min from creation, no touch extended it).
+	s.nowFunc = func() time.Time { return now.Add(16 * time.Minute) }
+	if _, ok := s.Get(token); ok {
+		t.Fatal("expected session to be expired at +16min (Get without Touch should not extend)")
+	}
+}
+
 func TestSessionStore_Delete(t *testing.T) {
 	s := newTestSessionStore(15*time.Minute, 100)
 	defer s.Close()

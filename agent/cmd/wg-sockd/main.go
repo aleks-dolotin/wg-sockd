@@ -387,7 +387,7 @@ func main() {
 		authHandlers := auth.NewAuthHandlers(&cfg.Auth, sessionStore, basicVerifier, loginRateLimiter, credCounter, waLib, challengeStore, db, waCfg)
 		baseMux.Handle("/api/auth/", authHandlers.Handler())
 
-		authMw := auth.NewMiddleware(sessionStore, tokenVerifier, cfg.Auth.SkipUnixSocket)
+		authMw := auth.NewMiddleware(sessionStore, tokenVerifier, cfg.Auth.SkipUnixSocket, cfg.Auth.SecureCookies)
 		baseMux.Handle("/", authMw.Wrap(mux))
 
 		// Log auth mode.
