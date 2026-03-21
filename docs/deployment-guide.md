@@ -242,7 +242,7 @@ sudo systemctl enable --now wg-sockd
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.21.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.22.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -259,7 +259,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.21.0"
+  tag: "0.22.0"
 
 nodeName: my-wg-node
 
@@ -284,7 +284,7 @@ Then open `http://localhost:8080`.
 
 ```bash
 helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.21.0 -n wg-sockd
+  --version 0.22.0 -n wg-sockd
 ```
 
 To also upgrade the agent on the host node, re-run the install script as described in the [Standalone Upgrade](#upgrade) section.

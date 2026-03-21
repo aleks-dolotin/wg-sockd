@@ -58,26 +58,21 @@ git add -A
 git commit -m "release: v0.17.0"
 ```
 
-### 4. Push to Main
-
-Push the commit to `main`. This triggers CI (tests + lint).
-
-```bash
-git push
-```
-
-Wait for CI to pass before proceeding.
-
-### 5. Create and Push Tag
-
-Read the version from `VERSION` file and create a tag. **This step must be done manually from the terminal — it triggers the release pipeline.**
+### 4. Create Tag
 
 ```bash
 git tag "v$(cat VERSION)"
-git push origin "v$(cat VERSION)"
 ```
 
-> **Safety note:** Tag push triggers the full release pipeline (build, publish, deploy). This is intentionally a separate manual step that requires terminal access and cannot be executed by automated agents.
+### 5. Push to Main with Tag
+
+Single push triggers CI and then release pipeline.
+
+```bash
+git push origin main --tags
+```
+
+> **Safety note:** Tag push triggers the full release pipeline (build, publish, deploy). This is intentionally a manual step that requires terminal access and cannot be executed by automated agents.
 
 ### 6. Verify Release
 
@@ -120,5 +115,5 @@ helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
 ## Quick Reference
 
 ```
-CHANGELOG.md          →  make bump-version  →  git commit  →  git push  →  (CI passes)  →  git tag + push  →  (pipeline)  →  deploy
+CHANGELOG.md  →  make bump-version  →  git commit  →  git tag  →  git push origin main --tags  →  (pipeline)  →  deploy
 ```

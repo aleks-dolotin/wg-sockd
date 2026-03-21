@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -241,7 +243,13 @@ func (h *AuthHandlers) makeCookie(token string, expiresAt time.Time, r *http.Req
 	case "false":
 		secure = false
 	default: // "auto"
-		secure = r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil
+		if ctxkeys.IsUnixSocket(r.Context()) {
+			// Trust X-Forwarded-Proto only from local proxy via Unix socket.
+			secure = r.Header.Get("X-Forwarded-Proto") == "https"
+		} else {
+			// TCP listener: ignore X-Forwarded-Proto, rely on actual TLS state.
+			secure = r.TLS != nil
+		}
 	}
 
 	return &http.Cookie{
@@ -303,27 +311,24 @@ func (h *AuthHandlers) webauthnDisabledGuard(w http.ResponseWriter) bool {
 	return true
 }
 
-// sanitizeFriendlyName enforces max 64 characters and strips HTML tags.
+// sanitizeFriendlyName enforces max 64 characters and strips angle brackets.
 func sanitizeFriendlyName(name string) string {
-	// Strip simple HTML tags.
-	for strings.Contains(name, "<") {
-		start := strings.Index(name, "<")
-		end := strings.Index(name[start:], ">")
-		if end == -1 {
-			break
+	// Strip all angle brackets unconditionally (defense-in-depth for XSS).
+	clean := strings.Map(func(r rune) rune {
+		if r == '<' || r == '>' {
+			return -1
 		}
-		name = name[:start] + name[start+end+1:]
-	}
+		return r
+	}, name)
 	// Truncate to 64 runes.
-	runes := []rune(name)
-	if len(runes) > 64 {
-		name = string(runes[:64])
+	if utf8.RuneCountInString(clean) > 64 {
+		clean = string([]rune(clean)[:64])
 	}
-	// Also ensure valid UTF-8.
-	if !utf8.ValidString(name) {
-		name = strings.ToValidUTF8(name, "")
+	// Ensure valid UTF-8.
+	if !utf8.ValidString(clean) {
+		clean = strings.ToValidUTF8(clean, "")
 	}
-	return strings.TrimSpace(name)
+	return strings.TrimSpace(clean)
 }
 
 // userAgentFriendlyName derives a short name from the User-Agent header.
@@ -419,11 +424,22 @@ func (h *AuthHandlers) webauthnRegisterFinish(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var req struct {
-		Token        string `json:"token"`
-		FriendlyName string `json:"friendly_name"`
+	// Read body once — go-webauthn will also need to read it.
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":   "invalid_request",
+			"message": "failed to read request body",
+		})
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+
+	var req struct {
+		Token        string          `json:"token"`
+		FriendlyName string          `json:"friendly_name"`
+		Credential   json.RawMessage `json:"credential"`
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "invalid_request",
 			"message": "invalid JSON",
@@ -447,6 +463,9 @@ func (h *AuthHandlers) webauthnRegisterFinish(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
+
+	// Replace r.Body with the credential portion for go-webauthn library.
+	r.Body = io.NopCloser(bytes.NewReader(req.Credential))
 
 	credential, err := h.webauthnLib.FinishRegistration(user, *sessionData, r)
 	if err != nil {
@@ -605,10 +624,20 @@ func (h *AuthHandlers) webauthnLoginFinish(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	var req struct {
-		Token string `json:"token"`
+	// Read body once — go-webauthn will also need to read it.
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid_request", "message": "failed to read request body",
+		})
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+
+	var req struct {
+		Token      string          `json:"token"`
+		Credential json.RawMessage `json:"credential"`
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "invalid_request", "message": "invalid JSON",
 		})
@@ -632,6 +661,9 @@ func (h *AuthHandlers) webauthnLoginFinish(w http.ResponseWriter, r *http.Reques
 		}
 		return user, nil
 	}
+
+	// Replace r.Body with the credential portion for go-webauthn library.
+	r.Body = io.NopCloser(bytes.NewReader(req.Credential))
 
 	credential, err := h.webauthnLib.FinishDiscoverableLogin(discoverableUserHandler, *sessionData, r)
 	if err != nil {

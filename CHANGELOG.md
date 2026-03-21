@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.22.0] — 2026-03-20
+
+### Fixed
+
+- **WebAuthn register/login body double-read** — `webauthnRegisterFinish` and `webauthnLoginFinish` consumed `r.Body` for token extraction, leaving go-webauthn library with empty body (EOF → 400). Fixed with `io.ReadAll` + `json.RawMessage` + body replay via `io.NopCloser`.
+- **X-Forwarded-Proto header spoofing** — `makeCookie` auto-mode now trusts `X-Forwarded-Proto` only when request arrives via Unix socket; TCP connections rely solely on `r.TLS` state.
+- **Naive HTML sanitization in friendly_name** — replaced tag-matching loop with unconditional `<`/`>` stripping via `strings.Map`.
+- **Weak token allowed without warning** — `auth.token.token` shorter than 32 characters now causes fatal startup error; override with `auth.token.allow_weak: true`.
+
+### Added
+
+- **WebAuthn handler tests** — 8 integration tests covering body parsing, token lookup, and credential forwarding for both register/finish and login/finish flows.
+- **Security fixes tests** — 14 unit tests for `makeCookie` auto-mode (Unix socket vs TCP, spoofed headers, real TLS) and `sanitizeFriendlyName` (unbalanced tags, unicode, truncation).
+- **ValidateAuth tests** — 10 unit tests covering token length enforcement, allow_weak override, session TTL bounds, and WebAuthn config validation.
+- **Integration design lessons** — `_bmad/_memory/architect-sidecar/integration-design-lessons.md` documenting body ownership rules for future specs.
+- **Tech spec template update** — added mandatory "Integration Contracts" section for handlers that share I/O with external libraries.
+
 ## [v0.21.0] — 2026-03-20
 
 ### Added

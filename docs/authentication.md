@@ -295,7 +295,7 @@ When running behind a reverse proxy (nginx, Traefik, Caddy):
 
 ## Security Considerations
 
-- **Token length** — use at least 32 random characters. The agent logs a warning for shorter tokens.
+- **Token length** — tokens shorter than 32 characters cause a fatal startup error. Override with `auth.token.allow_weak: true` (not recommended for production).
 - **Password hashing** — bcrypt is used with a cost factor of 12. Do not store the plaintext password anywhere.
 - **Login rate limiting** — failed login attempts are limited to 5 per 60 seconds per source IP. Unix socket requests bypass this limiter. WebAuthn `login/begin` is subject to the same rate limit.
 - **No auth configured** — the agent logs a `WARN` at startup and the API is accessible to anyone who can reach the socket. For internet-exposed deployments, always enable at least one auth method.

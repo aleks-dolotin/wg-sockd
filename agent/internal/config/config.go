@@ -35,8 +35,9 @@ type BasicAuthConfig struct {
 
 // TokenAuthConfig holds bearer token authentication settings.
 type TokenAuthConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Token   string `yaml:"token"`
+	Enabled   bool   `yaml:"enabled"`
+	Token     string `yaml:"token"`
+	AllowWeak bool   `yaml:"allow_weak"`
 }
 
 // WebAuthnConfig holds passkey/WebAuthn authentication settings.
@@ -295,8 +296,11 @@ func (c *Config) ValidateAuth() error {
 	}
 
 	// Warnings (non-fatal).
-	if a.Token.Enabled && len(a.Token.Token) < 32 {
-		log.Printf("WARN: auth.token.token is shorter than 32 characters — consider using a longer token")
+	if a.Token.Enabled && len(a.Token.Token) < 32 && !a.Token.AllowWeak {
+		return fmt.Errorf("auth.token.token is shorter than 32 characters (%d) — use a longer token or set auth.token.allow_weak=true to override", len(a.Token.Token))
+	}
+	if a.Token.Enabled && len(a.Token.Token) < 32 && a.Token.AllowWeak {
+		log.Printf("WARN: auth.token.token is shorter than 32 characters — allow_weak=true, proceeding anyway")
 	}
 
 	if !a.AnyEnabled() {
