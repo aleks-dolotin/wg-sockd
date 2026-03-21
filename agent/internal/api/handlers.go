@@ -397,6 +397,14 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hard cap on batch size to prevent resource exhaustion.
+	const maxBatchSize = 250
+	if len(req.Peers) > maxBatchSize {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			fmt.Sprintf("batch size %d exceeds maximum of %d", len(req.Peers), maxBatchSize))
+		return
+	}
+
 	// Check peer limit.
 	if h.cfg.PeerLimit > 0 {
 		count, err := h.store.CountPeers()
@@ -757,8 +765,29 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle client_address change — updates server AllowedIPs (/32).
-	if req.ClientAddress != nil && *req.ClientAddress != existing.ClientAddress {
-		needsWgUpdate = true
+	// Validate BEFORE wgctrl update to prevent kernel/DB divergence.
+	if req.ClientAddress != nil {
+		if *req.ClientAddress != "" {
+			if _, _, err := net.ParseCIDR(*req.ClientAddress); err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					fmt.Sprintf("invalid client_address CIDR format %q", *req.ClientAddress))
+				return
+			}
+			// Check uniqueness (exclude current peer).
+			taken, err := h.store.IsClientAddressTaken(*req.ClientAddress, existing.PublicKey)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "db_error", err.Error())
+				return
+			}
+			if taken {
+				writeError(w, http.StatusConflict, "conflict",
+					fmt.Sprintf("client_address %q is already assigned to another peer", *req.ClientAddress))
+				return
+			}
+		}
+		if *req.ClientAddress != existing.ClientAddress {
+			needsWgUpdate = true
+		}
 	}
 
 	// Update wgctrl if client_address changed (server AllowedIPs = /32).
@@ -851,25 +880,7 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		dbUpdate.ClientMTU = req.ClientMTU
 	}
 	if req.ClientAddress != nil {
-		// Validate CIDR format.
-		if *req.ClientAddress != "" {
-			if _, _, err := net.ParseCIDR(*req.ClientAddress); err != nil {
-				writeError(w, http.StatusBadRequest, "validation_error",
-					fmt.Sprintf("invalid client_address CIDR format %q", *req.ClientAddress))
-				return
-			}
-			// Check uniqueness (exclude current peer).
-			taken, err := h.store.IsClientAddressTaken(*req.ClientAddress, existing.PublicKey)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "db_error", err.Error())
-				return
-			}
-			if taken {
-				writeError(w, http.StatusConflict, "conflict",
-					fmt.Sprintf("client_address %q is already assigned to another peer", *req.ClientAddress))
-				return
-			}
-		}
+		// Validation already done before wgctrl update.
 		dbUpdate.ClientAddress = req.ClientAddress
 	}
 	if req.ClientAllowedIPs != nil {

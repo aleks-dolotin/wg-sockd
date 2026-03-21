@@ -592,6 +592,19 @@ func (h *AuthHandlers) webauthnLoginFinish(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Rate limiting by IP (same as login/begin and password login).
+	remoteIP := extractIP(r)
+	if !ctxkeys.IsUnixSocket(r.Context()) && remoteIP != "" {
+		if !h.rateLimiter.Check(remoteIP) {
+			w.Header().Set("Retry-After", "60")
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error":   "rate_limit_exceeded",
+				"message": "too many failed login attempts, try again later",
+			})
+			return
+		}
+	}
+
 	var req struct {
 		Token string `json:"token"`
 	}
@@ -623,11 +636,19 @@ func (h *AuthHandlers) webauthnLoginFinish(w http.ResponseWriter, r *http.Reques
 	credential, err := h.webauthnLib.FinishDiscoverableLogin(discoverableUserHandler, *sessionData, r)
 	if err != nil {
 		log.Printf("ERROR: webauthn FinishPasskeyLogin: %v", err)
+		if remoteIP != "" {
+			h.rateLimiter.RecordFailure(remoteIP)
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "authentication_failed",
 			"message": "passkey verification failed",
 		})
 		return
+	}
+
+	// Reset rate limiter on successful WebAuthn login.
+	if remoteIP != "" {
+		h.rateLimiter.Reset(remoteIP)
 	}
 
 	// Sign count check — log WARNING but do not block (Security #8).

@@ -41,6 +41,9 @@ func NewRateLimitedRouter(h *Handlers, rl *middleware.RateLimiter, ro middleware
 		handler = middleware.ReadOnlyGuard(ro)(handler)
 	}
 
+	// Max body size: limit request body to 1 MB for write operations.
+	handler = middleware.MaxBodyReader(middleware.MaxBodySize)(handler)
+
 	// Rate limiting: per-connection throttling (outermost).
 	if rl != nil {
 		handler = rl.Wrap(handler)

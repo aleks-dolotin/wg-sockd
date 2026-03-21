@@ -10,11 +10,21 @@ All notable changes to this project will be documented in this file.
 - **Passkey Management** — expanded `SettingsPage` to manage registered passkeys.
 - **Passwordless Login** — added "Sign in with Passkey" button and conditional UI flow on login page.
 - **Documentation** — updated `docs/authentication.md` with WebAuthn details.
+- **MaxBytesReader middleware** — limits POST/PUT/DELETE request body to 1 MB, preventing memory exhaustion from oversized payloads.
+- **Security response headers** — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` on all responses.
+- **Batch size limit** — `POST /api/peers/batch` rejects requests with more than 250 peers.
 
 ### Changed
 
 - **Login Flow** — merged password and passkey authentication flows.
 - **Storage Schema** — added `webauthn_credentials` table.
+- **WebAuthn login rate limiting** — `POST /api/auth/webauthn/login/finish` now subject to the same per-IP rate limiter as password login and `login/begin`.
+- **UpdatePeer validation order** — `client_address` CIDR format and uniqueness are now validated before kernel (wgctrl) update, preventing kernel/DB state divergence on invalid input.
+- **Credential ID encoding** — `storageCredToWebAuthn` now correctly base64url-decodes credential IDs instead of casting string to raw bytes.
+
+### Security
+
+- **CVE-2025-30204** — upgraded indirect dependency `golang-jwt/jwt` v5.2.1 → v5.2.2 (excessive memory allocation during header parsing).
 
 ## [v0.19.0] — 2026-03-20
 

@@ -11,6 +11,7 @@ const navItems = [
   { to: '/', label: 'Dashboard' },
   { to: '/peers', label: 'Peers' },
   { to: '/settings/profiles', label: 'Profiles' },
+  { to: '/settings', label: 'Settings' },
 ]
 
 export default function Layout() {
@@ -31,7 +32,7 @@ export default function Layout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  end={item.to === '/'}
+                  end={item.to === '/' || item.to === '/settings'}
                   className={({ isActive }) =>
                     `px-3 py-1.5 rounded-md text-sm transition-colors ${
                       isActive

@@ -199,8 +199,16 @@ func storageCredToWebAuthn(c storage.WebAuthnCredential) webauthn.Credential {
 
 	flags := protocol.AuthenticatorFlags(c.Flags)
 
+	// Decode credential ID from base64url storage format to raw bytes.
+	credIDBytes, err := base64.RawURLEncoding.DecodeString(c.ID)
+	if err != nil {
+		// Fallback: use raw string bytes if decode fails (legacy data).
+		log.Printf("WARNING: failed to decode credential ID %q: %v", c.ID, err)
+		credIDBytes = []byte(c.ID)
+	}
+
 	return webauthn.Credential{
-		ID:              []byte(c.ID),
+		ID:              credIDBytes,
 		PublicKey:       c.PublicKey,
 		AttestationType: c.AttestationType,
 		Transport:       transports,

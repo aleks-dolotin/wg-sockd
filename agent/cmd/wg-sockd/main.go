@@ -422,7 +422,7 @@ func main() {
 	}
 
 	// 9. Create socket monitor with self-healing (FM-3).
-	sm := sockmon.New(cfg.SocketPath, baseMux, middleware.ConnContext)
+	sm := sockmon.New(cfg.SocketPath, middleware.SecurityHeaders(baseMux), middleware.ConnContext)
 	if err := sm.Start(); err != nil {
 		log.Fatalf("FATAL: starting socket server: %v", err)
 	}
