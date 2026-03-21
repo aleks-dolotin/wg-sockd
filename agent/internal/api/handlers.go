@@ -363,7 +363,7 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 
 	// Generate QR code as base64 PNG (one-time — never stored).
 	qrBase64 := ""
-	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 256); qrErr == nil {
+	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 1024); qrErr == nil {
 		qrBase64 = base64.StdEncoding.EncodeToString(qrPNG)
 	}
 
@@ -1139,7 +1139,7 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 
 	// Generate QR code as base64 PNG (one-time — never stored).
 	qrBase64 := ""
-	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 256); qrErr == nil {
+	if qrPNG, qrErr := qrcode.Encode(conf, qrcode.Medium, 1024); qrErr == nil {
 		qrBase64 = base64.StdEncoding.EncodeToString(qrPNG)
 	}
 
