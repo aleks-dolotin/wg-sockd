@@ -70,6 +70,7 @@ type Config struct {
 	DBPath            string              `yaml:"db_path"`
 	ConfPath          string              `yaml:"conf_path"`
 	ListenAddr        string              `yaml:"listen_addr"`
+	ManagementListen  string              `yaml:"management_listen"`
 	ExternalEndpoint  string              `yaml:"external_endpoint"`
 	PeerLimit         int                 `yaml:"peer_limit"`
 	ReconcileInterval time.Duration       `yaml:"reconcile_interval"`
@@ -88,6 +89,7 @@ func Defaults() *Config {
 		DBPath:            "/var/lib/wg-sockd/wg-sockd.db",
 		ConfPath:          "/etc/wireguard/wg0.conf",
 		ListenAddr:        "",
+		ManagementListen:  ":8090",
 		PeerLimit:         250,
 		ReconcileInterval: 30 * time.Second,
 		RateLimit:         10,
@@ -133,6 +135,7 @@ func (c *Config) ApplyFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.ListenAddr, "listen-addr", c.ListenAddr, "HTTP listen address (for standalone UI mode)")
 	fs.BoolVar(&c.ServeUI, "serve-ui", c.ServeUI, "serve embedded UI on TCP (requires embed_ui build tag)")
 	fs.StringVar(&c.UIListen, "ui-listen", c.UIListen, "TCP listen address for UI mode")
+	fs.StringVar(&c.ManagementListen, "management-listen", c.ManagementListen, "TCP listen address for management/metrics server (empty to disable)")
 }
 
 // ApplyEnv reads environment variables and overrides matching Config fields in-place.
@@ -153,6 +156,7 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 		{"WG_SOCKD_DB_PATH", func(v string) error { c.DBPath = v; return nil }},
 		{"WG_SOCKD_CONF_PATH", func(v string) error { c.ConfPath = v; return nil }},
 		{"WG_SOCKD_LISTEN_ADDR", func(v string) error { c.ListenAddr = v; return nil }},
+		{"WG_SOCKD_MANAGEMENT_LISTEN", func(v string) error { c.ManagementListen = v; return nil }},
 		{"WG_SOCKD_PEER_LIMIT", func(v string) error {
 			n, err := strconv.Atoi(v)
 			if err != nil {

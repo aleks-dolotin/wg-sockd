@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.25.0] — 2026-03-21
+
+### Breaking Changes
+
+- **Prometheus metrics moved to dedicated management port** — `/api/metrics` removed from main API server. Metrics now served at `/management/prometheus` on a separate management port (default `:8090`, configurable via `management_listen` / `WG_SOCKD_MANAGEMENT_LISTEN`). Set `management_listen: ""` to disable. See UPGRADING.md for migration steps.
+
+### New Tests
+
+- `TestDefaults` — verifies `ManagementListen` default value (`:8090`)
+- `TestLoadConfig_ValidYAML` — verifies `management_listen` YAML parsing
+- `TestApplyEnv_ManagementListen` — verifies `WG_SOCKD_MANAGEMENT_LISTEN` env override
+- `TestApplyEnv_ManagementListenDisable` — verifies disabling management server via env
+
 ## [v0.22.0] — 2026-03-20
 
 ### Fixed

@@ -1,5 +1,48 @@
 # Upgrading wg-sockd
 
+## v0.15.x → v0.16.0 (Management Port for Metrics)
+
+### Breaking Change: Prometheus metrics moved to dedicated management port
+
+The `/api/metrics` endpoint has been removed from the main API server. Prometheus metrics are now served on a **dedicated management port** (default `:8090`) at `/management/prometheus`.
+
+This prevents unauthenticated exposure of peer names, public keys, traffic volumes, and online status through the public-facing reverse proxy.
+
+**Action required:**
+
+1. **Config file** — add `management_listen` if you want a non-default address:
+   ```yaml
+   management_listen: ":8090"   # default; set to "" to disable
+   ```
+
+2. **Prometheus scrape config** — update target port and path:
+   ```yaml
+   # Before
+   - targets: ["wg-sockd:8080"]
+     metrics_path: /api/metrics
+   # After
+   - targets: ["wg-sockd:8090"]
+     metrics_path: /management/prometheus
+   ```
+
+3. **Reverse proxy** — remove any `/api/metrics` proxy rule (the endpoint no longer exists on the main server).
+
+4. **Helm chart** — if using the bundled chart, `values.yaml` defaults have been updated automatically. Verify your overrides match:
+   ```yaml
+   prometheus:
+     enabled: true
+     path: /management/prometheus
+     port: 8090
+   ```
+
+5. **NetworkPolicy (recommended)** — restrict port 8090 to Prometheus namespace only.
+
+| Env var | Description |
+|---|---|
+| `WG_SOCKD_MANAGEMENT_LISTEN` | Management server listen address (default `:8090`, empty to disable) |
+
+---
+
 ## v0.13.x → v0.15.0 (WYSIWYG Peer Config + Profile UX Overhaul)
 
 > **Note:** v0.14.0 was never released. This version combines the Profile UX Overhaul and WYSIWYG Cascade Removal.
@@ -227,7 +270,7 @@ New endpoints (always registered, even without auth):
 - `GET /api/auth/session` — check session status, returns `auth_required` field
 
 Existing endpoints are unchanged. When auth is enabled, all `/api/*` endpoints
-(except `/api/health`, `/api/metrics`, `/api/auth/*`) require authentication.
+(except `/api/health`, `/api/auth/*`) require authentication.
 
 ### Reverse Proxy Notes
 

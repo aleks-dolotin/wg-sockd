@@ -32,6 +32,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.ReconcileInterval != 30*time.Second {
 		t.Errorf("ReconcileInterval: got %v, want 30s", cfg.ReconcileInterval)
 	}
+	if cfg.ManagementListen != ":8090" {
+		t.Errorf("ManagementListen: got %q, want %q", cfg.ManagementListen, ":8090")
+	}
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
@@ -54,6 +57,7 @@ socket_path: /tmp/test.sock
 db_path: /tmp/test.db
 conf_path: /tmp/wg1.conf
 listen_addr: "127.0.0.1:8080"
+management_listen: ":9090"
 peer_limit: 100
 reconcile_interval: 60s
 `
@@ -86,6 +90,9 @@ reconcile_interval: 60s
 	}
 	if cfg.ReconcileInterval != 60*time.Second {
 		t.Errorf("ReconcileInterval: got %v, want 1m0s", cfg.ReconcileInterval)
+	}
+	if cfg.ManagementListen != ":9090" {
+		t.Errorf("ManagementListen: got %q, want %q", cfg.ManagementListen, ":9090")
 	}
 }
 
@@ -329,9 +336,36 @@ func TestApplyEnv_InvalidBool(t *testing.T) {
 	}
 }
 
+func TestApplyEnv_ManagementListen(t *testing.T) {
+	t.Setenv("WG_SOCKD_MANAGEMENT_LISTEN", ":9999")
+	cfg := Defaults()
+	applied, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ManagementListen != ":9999" {
+		t.Errorf("ManagementListen: got %q, want %q", cfg.ManagementListen, ":9999")
+	}
+	if _, ok := applied["WG_SOCKD_MANAGEMENT_LISTEN"]; !ok {
+		t.Error("expected WG_SOCKD_MANAGEMENT_LISTEN in applied map")
+	}
+}
+
+func TestApplyEnv_ManagementListenDisable(t *testing.T) {
+	t.Setenv("WG_SOCKD_MANAGEMENT_LISTEN", "")
+	cfg := Defaults()
+	_, err := cfg.ApplyEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ManagementListen != "" {
+		t.Errorf("ManagementListen: got %q, want empty (disabled)", cfg.ManagementListen)
+	}
+}
+
 func TestApplyEnv_NoEnvVars(t *testing.T) {
 	// Ensure none of our env vars are set.
-	for _, key := range []string{"WG_SOCKD_INTERFACE", "WG_SOCKD_SOCKET_PATH", "WG_SOCKD_SERVE_UI", "WG_SOCKD_UI_LISTEN"} {
+	for _, key := range []string{"WG_SOCKD_INTERFACE", "WG_SOCKD_SOCKET_PATH", "WG_SOCKD_SERVE_UI", "WG_SOCKD_UI_LISTEN", "WG_SOCKD_MANAGEMENT_LISTEN"} {
 		os.Unsetenv(key)
 	}
 

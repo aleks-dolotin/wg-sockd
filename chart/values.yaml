@@ -3,7 +3,7 @@
 # Container image settings
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.24.0"
+  tag: "0.25.0"
   pullPolicy: IfNotPresent
 
 # Number of replicas — single replica required for hostPath socket access
@@ -50,11 +50,11 @@ resources: {}
   #   memory: 32Mi
 
 
-# Prometheus metrics scraping
+# Prometheus metrics scraping (dedicated management port)
 prometheus:
   enabled: false
-  path: /api/metrics
-  port: 8080
+  path: /management/prometheus
+  port: 8090
 
 # Authentication configuration
 # For security, use an external Secret for production. Only set secretName.

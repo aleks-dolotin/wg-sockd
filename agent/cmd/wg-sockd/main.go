@@ -92,6 +92,9 @@ func main() {
 	if !explicitFlags["listen-addr"] {
 		cfg.ListenAddr = fileCfg.ListenAddr
 	}
+	if !explicitFlags["management-listen"] {
+		cfg.ManagementListen = fileCfg.ManagementListen
+	}
 	// These fields are not CLI flags — always take from file.
 	cfg.PeerLimit = fileCfg.PeerLimit
 	cfg.ReconcileInterval = fileCfg.ReconcileInterval
@@ -333,12 +336,11 @@ func main() {
 	}
 	mux := api.NewRateLimitedRouter(handlers, rl, diskChecker)
 
-	// Prometheus metrics — registered on a wrapper mux outside rate limiting.
+	// Prometheus metrics — registered on a dedicated management server (separate port).
 	metricsCollector := metrics.New(wgClient, db, cfg.Interface)
 	metricsRegistry := prometheus.NewRegistry()
 	metricsRegistry.MustRegister(metricsCollector)
 	baseMux := http.NewServeMux()
-	baseMux.Handle("/api/metrics", promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
 	// Auth middleware — session store, rate limiter, handlers.
 	var sessionStore *auth.SessionStore
 	var loginRateLimiter *auth.LoginRateLimiter
@@ -408,8 +410,24 @@ func main() {
 		baseMux.Handle("/", mux)
 	}
 
-	// Prometheus metrics endpoint registered at /api/metrics
-	log.Println("Prometheus metrics endpoint registered at /api/metrics")
+	// Management server — Prometheus metrics on a dedicated port (not exposed via main API).
+	var mgmtServer *http.Server
+	if cfg.ManagementListen != "" {
+		mgmtMux := http.NewServeMux()
+		mgmtMux.Handle("/management/prometheus", promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
+		mgmtServer = &http.Server{
+			Addr:    cfg.ManagementListen,
+			Handler: mgmtMux,
+		}
+		go func() {
+			log.Printf("Management server listening on %s (metrics at /management/prometheus)", cfg.ManagementListen)
+			if err := mgmtServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Printf("Management server error: %v", err)
+			}
+		}()
+	} else {
+		log.Println("Management server disabled (management_listen is empty)")
+	}
 
 	// 7. Remove stale socket.
 	if err := os.Remove(cfg.SocketPath); err != nil && !os.IsNotExist(err) {
@@ -535,6 +553,9 @@ func main() {
 		dw.Close()
 
 		_ = sm.Shutdown(shutdownCtx)
+		if mgmtServer != nil {
+			_ = mgmtServer.Shutdown(shutdownCtx)
+		}
 		if tcpServer != nil {
 			_ = tcpServer.Shutdown(shutdownCtx)
 		}
@@ -589,6 +610,7 @@ func runDryRun(cfg *config.Config) int {
 	fmt.Printf("  conf_path:          %s\n", cfg.ConfPath)
 	fmt.Printf("  serve_ui:           %v\n", cfg.ServeUI)
 	fmt.Printf("  ui_listen:          %s\n", cfg.UIListen)
+	fmt.Printf("  management_listen:  %s\n", cfg.ManagementListen)
 	fmt.Printf("  peer_limit:         %d\n", cfg.PeerLimit)
 	fmt.Printf("  reconcile_interval: %s\n", cfg.ReconcileInterval)
 	fmt.Printf("  rate_limit:         %d\n", cfg.RateLimit)

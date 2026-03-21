@@ -50,6 +50,11 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
+            {{- if .Values.prometheus.enabled }}
+            - name: mgmt
+              containerPort: {{ .Values.prometheus.port }}
+              protocol: TCP
+            {{- end }}
           env:
             {{- if .Values.auth.basic.enabled }}
             - name: WG_SOCKD_AUTH_BASIC_ENABLED
