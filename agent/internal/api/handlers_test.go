@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,6 +24,29 @@ type noopReconcilerPauser struct{}
 
 func (noopReconcilerPauser) Pause()  {}
 func (noopReconcilerPauser) Resume() {}
+
+// noopFirewall is a no-op Firewall for happy-path tests.
+type noopFirewall struct{}
+
+func (noopFirewall) Sync(peers []storage.Peer) error    { return nil }
+func (noopFirewall) ApplyPeer(peer storage.Peer) error  { return nil }
+func (noopFirewall) RemovePeer(peer storage.Peer) error { return nil }
+
+// errorFirewall always returns an error — used to test AC-9 (firewall error doesn't block create).
+type errorFirewall struct{}
+
+func (errorFirewall) Sync(peers []storage.Peer) error    { return errors.New("firewall error") }
+func (errorFirewall) ApplyPeer(peer storage.Peer) error  { return errors.New("firewall error") }
+func (errorFirewall) RemovePeer(peer storage.Peer) error { return errors.New("firewall error") }
+
+// recordingPauser records Pause/Resume calls for AC-13 verification.
+type recordingPauser struct {
+	paused   int
+	resumed  int
+}
+
+func (r *recordingPauser) Pause()  { r.paused++ }
+func (r *recordingPauser) Resume() { r.resumed++ }
 
 // mockWgClient implements wireguard.WireGuardClient for testing.
 type mockWgClient struct {
@@ -78,7 +102,7 @@ func newTestHandlers(t *testing.T) (*Handlers, *storage.DB) {
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
 
 	mock := &mockWgClient{}
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{}, noopFirewall{})
 	return h, db
 }
 
@@ -204,7 +228,7 @@ func TestListPeers_JoinsLiveData(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{}, noopFirewall{})
 	router := NewRouter(h)
 
 	req := httptest.NewRequest("GET", "/api/peers", nil)
@@ -636,7 +660,7 @@ func TestStats_WithPeers(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
-	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{})
+	h := NewHandlers(mock, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{}, noopFirewall{})
 	router := NewRouter(h)
 
 	req := httptest.NewRequest("GET", "/api/stats", nil)
@@ -906,5 +930,73 @@ func TestNextAddress_InterfaceNotFound(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&errResp)
 	if errResp["error"] != "interface_not_found" {
 		t.Errorf("error code: got %q, want %q", errResp["error"], "interface_not_found")
+	}
+}
+
+// TestCreatePeer_FirewallError_StillReturns201 verifies AC-9:
+// a firewall error on ApplyPeer must not block peer creation (HTTP 201 returned).
+func TestCreatePeer_FirewallError_StillReturns201(t *testing.T) {
+	db, err := storage.NewDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	cfg := config.Defaults()
+	cfg.ConfPath = t.TempDir() + "/wg0.conf"
+
+	h := NewHandlers(&mockWgClient{}, db, cfg, confwriter.NewSharedWriter(), nil, noopReconcilerPauser{}, errorFirewall{})
+	router := NewRouter(h)
+
+	body := `{"friendly_name":"FW Error Peer","allowed_ips":["10.0.0.7/32"],"client_address":"10.0.0.7/32","client_allowed_ips":"0.0.0.0/0"}`
+	req := httptest.NewRequest("POST", "/api/peers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("AC-9: expected 201 even on firewall error, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestDeletePeer_PausesReconciler verifies AC-13:
+// DeletePeer must call Pause() before operations and Resume() after.
+func TestDeletePeer_PausesReconciler(t *testing.T) {
+	db, err := storage.NewDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	cfg := config.Defaults()
+	cfg.ConfPath = t.TempDir() + "/wg0.conf"
+
+	pauser := &recordingPauser{}
+	h := NewHandlers(&mockWgClient{}, db, cfg, confwriter.NewSharedWriter(), nil, pauser, noopFirewall{})
+	router := NewRouter(h)
+
+	key, _ := wgtypes.GeneratePrivateKey()
+	id, err := db.CreatePeer(&storage.Peer{
+		PublicKey:    key.PublicKey().String(),
+		FriendlyName: "Pause Test",
+		AllowedIPs:   "10.0.0.9/32",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/peers/"+itoa(id), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status: got %d, want 204. Body: %s", w.Code, w.Body.String())
+	}
+	if pauser.paused != 1 {
+		t.Errorf("AC-13: expected Pause() called once, got %d", pauser.paused)
+	}
+	if pauser.resumed != 1 {
+		t.Errorf("AC-13: expected Resume() called once, got %d", pauser.resumed)
 	}
 }

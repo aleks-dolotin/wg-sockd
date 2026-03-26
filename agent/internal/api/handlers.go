@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/firewall"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/middleware"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
@@ -39,6 +40,7 @@ type Handlers struct {
 	confWriter *confwriter.SharedWriter    // serialises wg0.conf writes shared with Reconciler
 	debouncer  *confwriter.DebouncedWriter // coalesces rapid conf writes (Story 5.3)
 	reconciler ReconcilerPauser            // paused during BatchCreatePeers to avoid race
+	firewall   firewall.Firewall           // per-peer iptables enforcement
 }
 
 // NewHandlers creates a new Handlers instance.
@@ -49,6 +51,7 @@ func NewHandlers(
 	confWriter *confwriter.SharedWriter,
 	debouncer *confwriter.DebouncedWriter,
 	reconciler ReconcilerPauser,
+	fw firewall.Firewall,
 ) *Handlers {
 	return &Handlers{
 		wgClient:   wgClient,
@@ -57,6 +60,7 @@ func NewHandlers(
 		confWriter: confWriter,
 		debouncer:  debouncer,
 		reconciler: reconciler,
+		firewall:   fw,
 	}
 }
 
@@ -271,6 +275,18 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		clientAllowedIPs = strings.Join(resolvedAllowedIPs, ", ")
 	}
 
+	// Apply firewall rules BEFORE ConfigurePeers — zero exposure window (AC-18).
+	// tempPeer is stored and reused in all rollback branches (never reconstructed inline).
+	tempPeer := storage.Peer{
+		PublicKey:        pubKey.String(),
+		ClientAddress:    req.ClientAddress,
+		ClientAllowedIPs: clientAllowedIPs,
+		Enabled:          true,
+	}
+	if fwErr := h.firewall.ApplyPeer(tempPeer); fwErr != nil {
+		log.Printf("WARN: firewall ApplyPeer failed for new peer %s: %v — continuing (AC-9)", pubKey, fwErr)
+	}
+
 	// Add to wgctrl.
 	wgPeerCfg := wireguard.PeerConfig{
 		PublicKey:    pubKey,
@@ -292,6 +308,10 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	}
 	err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{wgPeerCfg})
 	if err != nil {
+		// Rollback firewall — peer was never fully created.
+		if rbErr := h.firewall.RemovePeer(tempPeer); rbErr != nil {
+			log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", pubKey, rbErr)
+		}
 		writeError(w, http.StatusInternalServerError, "wireguard_error", err.Error())
 		return
 	}
@@ -316,7 +336,10 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.store.CreatePeer(dbPeer)
 	if err != nil {
-		// Rollback wgctrl.
+		// Rollback firewall + wgctrl.
+		if rbErr := h.firewall.RemovePeer(tempPeer); rbErr != nil {
+			log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", pubKey, rbErr)
+		}
 		_ = h.wgClient.RemovePeer(h.cfg.Interface, pubKey)
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
@@ -325,6 +348,9 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	// Rewrite conf file — if this fails, rollback DB and kernel changes.
 	if err := h.rewriteConf(); err != nil {
 		log.Printf("ERROR: conf write failed, rolling back: %v", err)
+		if rbErr := h.firewall.RemovePeer(tempPeer); rbErr != nil {
+			log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", pubKey, rbErr)
+		}
 		if rbErr := h.store.DeletePeer(pubKey.String()); rbErr != nil {
 			log.Printf("CRITICAL: DB rollback failed for peer %s: %v", pubKey, rbErr)
 		}
@@ -920,6 +946,17 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Apply firewall when client_allowed_ips, client_address, or enabled changed.
+	firewallRelevant := req.ClientAllowedIPs != nil || req.ClientAddress != nil || req.Enabled != nil
+	if firewallRelevant {
+		// Re-read to get the fully updated peer for firewall.
+		if fwPeer, fwErr := h.store.GetPeerByID(id); fwErr == nil {
+			if applyErr := h.firewall.ApplyPeer(*fwPeer); applyErr != nil {
+				log.Printf("WARN: firewall ApplyPeer failed for updated peer %s: %v", existing.PublicKey, applyErr)
+			}
+		}
+	}
+
 	// Rewrite conf if network config changed (debounced — non-critical).
 	if needsWgUpdate {
 		h.notifyConfChange()
@@ -1027,6 +1064,11 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Remove old firewall chain before DB update (old key still known here).
+	if fwErr := h.firewall.RemovePeer(*peer); fwErr != nil {
+		log.Printf("WARN: firewall RemovePeer (old key) failed for peer %d: %v", peer.ID, fwErr)
+	}
+
 	// Step 1: Remove old peer from wgctrl.
 	if err := h.wgClient.RemovePeer(h.cfg.Interface, oldPubKey); err != nil {
 		log.Printf("WARNING: removing old peer from wgctrl: %v", err)
@@ -1112,6 +1154,13 @@ func (h *Handlers) RotateKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "conf_write_error", err.Error())
 		return
+	}
+
+	// Apply firewall rules for new key after DB is updated with new public key.
+	updatedPeerForFW := *peer
+	updatedPeerForFW.PublicKey = newPubKey.String()
+	if fwErr := h.firewall.ApplyPeer(updatedPeerForFW); fwErr != nil {
+		log.Printf("WARN: firewall ApplyPeer (new key) failed for peer %d: %v", peer.ID, fwErr)
 	}
 
 	// Build new .conf content using ClientConfBuilder.
@@ -1350,11 +1399,16 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 	// Rewrite conf (debounced — non-critical).
 	h.notifyConfChange()
 
-	// Re-read and return full PeerResponse.
+	// Re-read updated peer for firewall apply (has ClientAddress set now).
 	updated, err := h.store.GetPeerByID(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
+	}
+
+	// Apply firewall rules after peer is fully approved and conf written.
+	if fwErr := h.firewall.ApplyPeer(*updated); fwErr != nil {
+		log.Printf("WARN: firewall ApplyPeer failed for approved peer %s: %v", updated.PublicKey, fwErr)
 	}
 
 	resp := peerToResponse(*updated)
@@ -1400,6 +1454,10 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pause reconciler to prevent race: reconciler must not re-add peer while we delete (AC-13).
+	h.reconciler.Pause()
+	defer h.reconciler.Resume()
+
 	// Remove from wgctrl.
 	pubKeyBytes, err := wireguard.ParseKey(peer.PublicKey)
 	if err != nil {
@@ -1414,6 +1472,11 @@ func (h *Handlers) DeletePeer(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeletePeer(peer.PublicKey); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
+	}
+
+	// Remove firewall rules after DB delete.
+	if fwErr := h.firewall.RemovePeer(*peer); fwErr != nil {
+		log.Printf("WARN: firewall RemovePeer failed for deleted peer %s: %v", peer.PublicKey, fwErr)
 	}
 
 	// Rewrite conf (debounced — non-critical).

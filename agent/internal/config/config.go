@@ -63,6 +63,13 @@ func (a *AuthConfig) AnyEnabled() bool {
 	return a.Basic.Enabled || a.Token.Enabled || a.WebAuthn.Enabled
 }
 
+// FirewallConfig holds iptables/firewall integration settings.
+type FirewallConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Driver       string `yaml:"driver"`        // "iptables" | "nftables" | "none"
+	ManagedChain string `yaml:"managed_chain"` // default: "WG_SOCKD_FORWARD"
+}
+
 // Config holds all agent configuration.
 type Config struct {
 	Interface         string              `yaml:"interface"`
@@ -79,6 +86,7 @@ type Config struct {
 	ServeUI           bool                `yaml:"serve_ui"`
 	UIListen          string              `yaml:"ui_listen"`
 	Auth              AuthConfig          `yaml:"auth"`
+	Firewall          FirewallConfig      `yaml:"firewall"`
 }
 
 // Defaults returns a Config populated with default values.
@@ -100,6 +108,11 @@ func Defaults() *Config {
 			SkipUnixSocket: true,
 			SecureCookies:  "auto",
 			MaxSessions:    100,
+		},
+		Firewall: FirewallConfig{
+			Enabled:      true,
+			Driver:       "iptables",
+			ManagedChain: "WG_SOCKD_FORWARD",
 		},
 	}
 }

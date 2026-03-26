@@ -27,6 +27,7 @@ import (
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/auth"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/firewall"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/health"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/middleware"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/reconciler"
@@ -102,6 +103,7 @@ func main() {
 	cfg.ExternalEndpoint = fileCfg.ExternalEndpoint
 	cfg.RateLimit = fileCfg.RateLimit
 	cfg.Auth = fileCfg.Auth
+	cfg.Firewall = fileCfg.Firewall
 	// Preserve auth defaults if not set in file.
 	if fileCfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = config.Defaults().Auth.SessionTTL
@@ -282,15 +284,33 @@ func main() {
 	// across both the API handlers and the Reconciler goroutine.
 	cw := confwriter.NewSharedWriter()
 
-	// 5. Run initial reconciliation.
-	rec := reconciler.New(wgClient, db, cfg, cw)
+	// 5. Construct firewall — Fatalf on unknown driver (startup is the right failure point).
+	fw, err := firewall.New(cfg.Firewall)
+	if err != nil {
+		log.Fatalf("FATAL: initializing firewall: %v", err)
+	}
+
+	// 5a. Run initial reconciliation.
+	rec := reconciler.New(wgClient, db, cfg, cw, fw)
 	if err := rec.ReconcileOnce(ctx); err != nil {
 		log.Printf("WARNING: initial reconciliation failed: %v", err)
 	} else {
 		log.Println("Initial reconciliation complete")
 	}
 
-	// 5b. Start periodic reconciliation loop.
+	// 5b. Sync firewall state with DB peers after initial reconcile.
+	dbPeersForSync, syncErr := db.ListPeers()
+	if syncErr != nil {
+		log.Printf("WARNING: listing peers for firewall sync: %v", syncErr)
+	} else {
+		if syncErr := fw.Sync(dbPeersForSync); syncErr != nil {
+			log.Printf("WARNING: firewall Sync failed: %v", syncErr)
+		} else {
+			log.Println("Firewall sync complete")
+		}
+	}
+
+	// 5c. Start periodic reconciliation loop.
 	go rec.RunLoop(ctx, cfg.ReconcileInterval)
 
 	// 5c. Start disk space monitor for graceful degradation (FM-6).
@@ -328,7 +348,7 @@ func main() {
 	})
 
 	// 6b. Create handlers + router with rate limiting and read-only guard.
-	handlers := api.NewHandlers(wgClient, db, cfg, cw, dw, rec)
+	handlers := api.NewHandlers(wgClient, db, cfg, cw, dw, rec, fw)
 	var rl *middleware.RateLimiter
 	if cfg.RateLimit > 0 {
 		rl = middleware.NewRateLimiter(float64(cfg.RateLimit), cfg.RateLimit)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/firewall"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -58,7 +59,7 @@ func newTestReconciler(t *testing.T, mock *mockWgClient) (*Reconciler, *storage.
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
 
-	r := New(mock, db, cfg, confwriter.NewSharedWriter())
+	r := New(mock, db, cfg, confwriter.NewSharedWriter(), &firewall.NoopFirewall{})
 	return r, db
 }
 
@@ -236,7 +237,7 @@ func TestReconcileOnce_UnknownPeerStrictMode(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.ConfPath = t.TempDir() + "/wg0.conf"
 
-	r := New(mock, db, cfg, confwriter.NewSharedWriter())
+	r := New(mock, db, cfg, confwriter.NewSharedWriter(), &firewall.NoopFirewall{})
 
 	err = r.ReconcileOnce(context.Background())
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/config"
+	"github.com/aleks-dolotin/wg-sockd/agent/internal/firewall"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/confwriter"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/storage"
 	"github.com/aleks-dolotin/wg-sockd/agent/internal/wireguard"
@@ -26,16 +27,18 @@ type Reconciler struct {
 	// mu guards ReconcileOnce. Pause acquires a write-lock so that
 	// ReconcileOnce (which holds a read-lock) cannot run concurrently
 	// with operations that must be atomic (e.g. BatchCreatePeers).
-	mu sync.RWMutex
+	mu       sync.RWMutex
+	firewall firewall.Firewall // per-peer iptables enforcement
 }
 
 // New creates a new Reconciler.
-func New(wgClient wireguard.WireGuardClient, store *storage.DB, cfg *config.Config, confWriter *confwriter.SharedWriter) *Reconciler {
+func New(wgClient wireguard.WireGuardClient, store *storage.DB, cfg *config.Config, confWriter *confwriter.SharedWriter, fw firewall.Firewall) *Reconciler {
 	return &Reconciler{
 		wgClient:   wgClient,
 		store:      store,
 		cfg:        cfg,
 		confWriter: confWriter,
+		firewall:   fw,
 	}
 }
 
@@ -111,6 +114,10 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 				log.Printf("WARN: zombie peer detected (disabled in DB, present in kernel) — removing: %s", pubKeyStr)
 				if err := r.wgClient.RemovePeer(r.cfg.Interface, wgPeer.PublicKey); err != nil {
 					log.Printf("ERROR: failed to remove zombie peer %s: %v", pubKeyStr, err)
+				}
+				// Remove firewall rules for zombie peer (log warn, don't abort reconcile).
+				if fwErr := r.firewall.RemovePeer(dbPeer); fwErr != nil {
+					log.Printf("WARN: firewall RemovePeer zombie %s: %v", pubKeyStr, fwErr)
 				}
 			}
 			continue
@@ -201,6 +208,11 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		err = r.wgClient.ConfigurePeers(r.cfg.Interface, []wireguard.PeerConfig{peerCfg})
 		if err != nil {
 			log.Printf("ERROR: failed to re-add peer %s: %v", pubKeyStr, err)
+			continue
+		}
+		// Restore firewall rules for re-added peer (log warn, don't abort reconcile).
+		if fwErr := r.firewall.ApplyPeer(dbPeer); fwErr != nil {
+			log.Printf("WARN: firewall ApplyPeer re-add %s: %v", pubKeyStr, fwErr)
 		}
 	}
 
