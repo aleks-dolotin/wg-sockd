@@ -18,3 +18,4 @@ spike/spike-arm64
 spike/spike-amd64
 cmd/wg-sockd-ctl/wg-sockd-ctl
 agent/cmd/wg-sockd/ui_dist/
+CLAUDE.md
