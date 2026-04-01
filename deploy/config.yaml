@@ -7,7 +7,7 @@ auto_approve_unknown: false
 peer_limit: 250
 reconcile_interval: 30s
 rate_limit: 10  # max requests/second per connection (0 = disabled)
-# external_endpoint: "vpn.example.com:51820"  # used in client .conf and QR codes
+external_endpoint: "vpn.example.com:51820"  # REQUIRED — used in client .conf and QR codes
 
 # UI settings — set serve_ui: true to enable the embedded web UI.
 # Requires the "full" binary built with: make build-full

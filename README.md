@@ -242,8 +242,8 @@ peer_limit: 250
 # Reconciliation interval
 reconcile_interval: 30s
 
-# External endpoint for client configs (e.g., "vpn.example.com:51820")
-# external_endpoint: "vpn.example.com:51820"
+# External endpoint for client configs (REQUIRED)
+external_endpoint: "vpn.example.com:51820"
 
 # Server-side IP filtering via iptables (enabled by default)
 # See docs/firewall.md for details and PostUp compatibility notes
