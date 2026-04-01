@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.26.0] — 2026-03-31
+
+### Added
+
+- **Server-side modular IP filtering via iptables** — new `agent/internal/firewall` package with a `Firewall` interface, `NoopFirewall` driver (for `enabled: false` or `driver: none`), and `IptablesFirewall` driver.
+- **Per-peer iptables chain enforcement** — each peer gets a dedicated `WG_PEER_<8alnum>` chain dispatched from a `WG_SOCKD_FORWARD` chain jumped from `FORWARD`. Destination filtering is based on the peer's `client_allowed_ips`; empty `client_allowed_ips` produces a DROP-only chain (strict policy).
+- **Zero exposure window on peer create** — `ApplyPeer` is called before `ConfigurePeers` so the kernel peer is never live without firewall rules. Firewall errors are logged as WARN and do not block creation (AC-9).
+- **Atomic key rotation** — `RotateKeys` removes the old chain before DB update and creates the new chain after, since chain names are derived from the public key.
+- **Orphan chain cleanup in `Sync`** — `WG_PEER_*` chains with no corresponding DB peer are detected and removed on startup. Cleanup always runs even if individual `ApplyPeer` calls fail (AC-19).
+- **`firewall` config section** — `FirewallConfig` added to `Config` with defaults `enabled: true`, `driver: "iptables"`, `managed_chain: "WG_SOCKD_FORWARD"`.
+- **`Pause`/`Resume` in `DeletePeer`** — reconciler is paused during delete to prevent race where reconciler re-adds the peer being deleted (AC-13).
+- **19 new tests** — fake-binary test strategy for iptables (no root required in CI); `noopFirewall`, `errorFirewall`, `recordingPauser` mocks in handlers tests.
+
+### Changed
+
+- `reconciler.New` and `api.NewHandlers` now accept a `firewall.Firewall` parameter (constructor injection).
+- `main.go`: `firewall.New(cfg.Firewall)` constructed after config load; fatal on unknown driver; `fw.Sync(dbPeers)` called after initial reconcile; rules intentionally survive shutdown (no cleanup on SIGTERM).
+
 ## [v0.25.0] — 2026-03-21
 
 ### Breaking Changes
