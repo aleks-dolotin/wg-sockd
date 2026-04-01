@@ -189,7 +189,12 @@ func main() {
 
 	log.Printf("Config loaded: interface=%s, socket=%s, db=%s", cfg.Interface, cfg.SocketPath, cfg.DBPath)
 
-	// Step 5a: Validate auth config (F9: after ALL 4 config levels merged).
+	// Step 5a: Validate top-level config (required fields).
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("FATAL: config: %v", err)
+	}
+
+	// Step 5b: Validate auth config (F9: after ALL 4 config levels merged).
 	if err := cfg.ValidateAuth(); err != nil {
 		log.Fatalf("FATAL: auth config: %v", err)
 	}

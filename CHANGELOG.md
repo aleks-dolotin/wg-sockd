@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.28.0] — 2026-04-01
+
+### Changed
+
+- **`external_endpoint` is now required** — the daemon refuses to start if `external_endpoint` is not set in `config.yaml` or via `WG_SOCKD_EXTERNAL_ENDPOINT` env var. Previously, an empty value silently produced a `<server_endpoint>` placeholder in generated client configs, resulting in non-functional QR codes and `.conf` files.
+- **New env var `WG_SOCKD_EXTERNAL_ENDPOINT`** — overrides `external_endpoint` from config file (4-level config: default → file → env → CLI).
+- **`Config.Validate()`** — new method for top-level required-field validation, called at startup before `ValidateAuth()`.
+
 ## [v0.27.0] — 2026-03-31
 
 ### Fixed

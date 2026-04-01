@@ -249,6 +249,7 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 			return nil
 		}},
 		{"WG_SOCKD_AUTH_WEBAUTHN_ORIGIN", func(v string) error { c.Auth.WebAuthn.Origin = v; return nil }},
+		{"WG_SOCKD_EXTERNAL_ENDPOINT", func(v string) error { c.ExternalEndpoint = v; return nil }},
 	}
 
 	for _, m := range mappings {
@@ -325,5 +326,14 @@ func (c *Config) ValidateAuth() error {
 		log.Printf("WARN: No authentication methods configured — API is unprotected. Set auth.basic.enabled or auth.token.enabled in config.")
 	}
 
+	return nil
+}
+
+// Validate checks top-level configuration for fatal errors.
+// Returns an error if any required field is missing (caller should fatal).
+func (c *Config) Validate() error {
+	if c.ExternalEndpoint == "" {
+		return fmt.Errorf("external_endpoint is required — set it in config.yaml or via WG_SOCKD_EXTERNAL_ENDPOINT env var (e.g. \"vpn.example.com:51820\")")
+	}
 	return nil
 }

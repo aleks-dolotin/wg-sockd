@@ -1606,11 +1606,12 @@ func (h *Handlers) Stats(w http.ResponseWriter, r *http.Request) {
 }
 
 // serverEndpoint returns the server endpoint string for client configs.
-// Uses cfg.ExternalEndpoint if configured, otherwise falls back to a placeholder with the device's listen port.
 func (h *Handlers) serverEndpoint(listenPort int) string {
 	if h.cfg.ExternalEndpoint != "" {
 		return h.cfg.ExternalEndpoint
 	}
+	// Should not happen — Validate() requires ExternalEndpoint at startup.
+	log.Printf("BUG: ExternalEndpoint is empty — this should have been caught by config validation")
 	return fmt.Sprintf("<server_endpoint>:%d", listenPort)
 }
 
