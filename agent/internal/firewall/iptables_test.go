@@ -180,15 +180,16 @@ func TestPeerChainName_DifferentKeys(t *testing.T) {
 }
 
 func TestSourceCIDR(t *testing.T) {
-	// sourceCIDR returns client_address as-is — full CIDR passed to iptables -s.
-	// This avoids the HIGH-4 bug where stripping the mask produced a network address
-	// (e.g. "10.0.0.0/24" → "10.0.0.0") that iptables would never match.
+	// sourceCIDR normalises client_address to /32 host CIDR.
+	// This prevents iptables from collapsing "10.0.10.3/24" → "10.0.10.0/24"
+	// which would make all peers in the subnet share one dispatch rule.
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"10.8.0.5/32", "10.8.0.5/32"},
-		{"192.168.1.10/24", "192.168.1.10/24"},
+		{"192.168.1.10/24", "192.168.1.10/32"},
+		{"10.0.10.3/24", "10.0.10.3/32"},
 		{"", ""},
 		{"10.0.0.1", "10.0.0.1"},
 	}

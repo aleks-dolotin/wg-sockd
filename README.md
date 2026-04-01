@@ -186,7 +186,7 @@ Install or upgrade the chart directly from the registry — no need to clone the
 
 ```bash
 helm upgrade --install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.28.0 -n wg-sockd --create-namespace
+  --version 0.29.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -204,7 +204,7 @@ Then open `http://localhost:8080`.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.28.0"
+  tag: "0.29.0"
 
 nodeName: my-wg-node
 
@@ -556,7 +556,7 @@ For Kubernetes, upgrade the Helm chart (same command as initial install):
 
 ```bash
 helm upgrade --install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.28.0 -n wg-sockd --create-namespace
+  --version 0.29.0 -n wg-sockd --create-namespace
 ```
 
 See [UPGRADING.md](UPGRADING.md) for version-specific migration notes.

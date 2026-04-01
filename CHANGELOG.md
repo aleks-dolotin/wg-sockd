@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.29.0] — 2026-04-01
+
+### Fixed
+
+- **Firewall dispatch rules matched entire subnet instead of individual peer (CRIT)** — `sourceCIDR()` now normalises `client_address` to `/32` host CIDR before passing to iptables `-s`. Previously, addresses stored with interface subnet mask (e.g. `10.0.10.3/24`) were passed as-is, causing iptables to normalise to the network address (`10.0.10.0/24`). All peers in the subnet matched the first dispatch rule, so per-peer filtering was broken — peers could not reach destinations allowed only for other peers.
+- **Stale dispatch rules surviving service restart** — `Sync()` now flushes the dispatch chain (`WG_SOCKD_FORWARD`) before re-creating jump rules. Previously, rules from a prior version (e.g. with wrong source CIDR) persisted across restarts and interfered with correctly generated rules.
+
 ## [v0.28.0] — 2026-04-01
 
 ### Changed

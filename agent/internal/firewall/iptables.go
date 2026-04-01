@@ -3,6 +3,7 @@ package firewall
 import (
 	"fmt"
 	"log"
+	"net"
 	"os/exec"
 	"strings"
 
@@ -52,13 +53,22 @@ func peerChainName(pubKey string) string {
 	return "WG_PEER_" + string(safe)
 }
 
-// sourceCIDR returns client_address as-is for use in iptables -s.
-// iptables accepts full CIDR notation (e.g. 10.8.0.5/32), which correctly
-// handles both host addresses (/32) and subnet addresses without silently
-// matching a network address instead of the intended host.
+// sourceCIDR normalises client_address to a /32 host CIDR for iptables -s.
+// client_address may be stored with the interface subnet mask (e.g. "10.0.10.3/24").
+// Passing that directly to iptables causes it to normalise to the *network* address
+// ("10.0.10.0/24"), making all peers in the subnet share one dispatch rule.
+// Extracting the host IP and appending /32 ensures per-peer specificity.
 // Returns "" without panic if client_address is empty.
 func sourceCIDR(clientAddress string) string {
-	return clientAddress
+	if clientAddress == "" {
+		return ""
+	}
+	ip, _, err := net.ParseCIDR(clientAddress)
+	if err != nil {
+		// No CIDR mask — could be a bare IP; return as-is.
+		return clientAddress
+	}
+	return ip.String() + "/32"
 }
 
 // run executes an iptables command, discarding stdout, returning stderr on error.
@@ -221,6 +231,13 @@ func (fw *IptablesFirewall) Sync(peers []storage.Peer) error {
 	// Step 1: Ensure dispatch chain exists.
 	if err := fw.ensureDispatchChain(); err != nil {
 		return fmt.Errorf("firewall: Sync ensureDispatchChain: %w", err)
+	}
+
+	// Step 1.5: Flush the dispatch chain so that stale jump rules (e.g. with
+	// wrong source CIDR from a previous version) are removed. ApplyPeer will
+	// re-add correct jump rules for each enabled peer below.
+	if err := fw.run("-F", fw.cfg.ManagedChain); err != nil {
+		log.Printf("WARN: firewall: Sync: flushing dispatch chain: %v", err)
 	}
 
 	// Build expected chain name set.
