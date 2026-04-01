@@ -10,6 +10,7 @@
 ## Features
 
 - **Profile-based peers** — define network access templates (full-tunnel, split-tunnel, NAS-only) with CIDR exclusion
+- **Server-side IP filtering** — per-peer iptables chains enforce destination restrictions; peers cannot bypass `client_allowed_ips` even by modifying their local config
 - **Auto-discovery** — unknown peers added via `wg set` are detected, blocked, and recorded for review
 - **QR codes** — scan peer config from your phone
 - **Web UI** — responsive React SPA for peer management, stats dashboard, and profile configuration
@@ -62,6 +63,7 @@ The fastest way to get started. One command installs the agent with embedded web
   - Fedora: `dnf install wireguard-tools`
   - Arch: `pacman -S wireguard-tools`
   - Alpine: `apk add wireguard-tools`
+- **iptables** — required for server-side IP filtering (enabled by default). Present on most Linux distributions. Disable with `firewall.enabled: false` in config if unavailable.
 - **WireGuard interface** — a running `wg0` interface with `[Interface]` section configured in `/etc/wireguard/wg0.conf`
 - **WireGuard directory permissions** — the agent runs as user `wg-sockd` and needs read/write access to `/etc/wireguard/`. WireGuard defaults to `700 root:root`. The install script sets correct permissions automatically. If installing manually, see [WireGuard Directory Permissions](docs/deployment-guide.md#wireguard-directory-permissions).
 
@@ -184,7 +186,7 @@ Install or upgrade the chart directly from the registry — no need to clone the
 
 ```bash
 helm upgrade --install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.26.0 -n wg-sockd --create-namespace
+  --version 0.27.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -202,7 +204,7 @@ Then open `http://localhost:8080`.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.26.0"
+  tag: "0.27.0"
 
 nodeName: my-wg-node
 
@@ -234,9 +236,6 @@ db_path: /var/lib/wg-sockd/wg-sockd.db
 # WireGuard config file (agent manages [Peer] sections)
 conf_path: /etc/wireguard/wg0.conf
 
-# Auto-approve unknown peers (WARNING: disables security blocking)
-auto_approve_unknown: false
-
 # Maximum number of peers
 peer_limit: 250
 
@@ -245,6 +244,13 @@ reconcile_interval: 30s
 
 # External endpoint for client configs (e.g., "vpn.example.com:51820")
 # external_endpoint: "vpn.example.com:51820"
+
+# Server-side IP filtering via iptables (enabled by default)
+# See docs/firewall.md for details and PostUp compatibility notes
+firewall:
+  enabled: true
+  driver: iptables    # "iptables" | "none"
+  managed_chain: WG_SOCKD_FORWARD
 
 # Peer profiles — seeded on first start, then managed via API
 # peer_profiles:
@@ -470,6 +476,16 @@ wg-sockd-ctl --socket /custom/path.sock peers list
 
 ## Security
 
+### Server-Side IP Filtering
+
+wg-sockd enforces per-peer destination filtering via iptables. Even if a peer rewrites its local WireGuard config, the server drops traffic to networks outside the peer's `client_allowed_ips`.
+
+Each peer gets a dedicated `WG_PEER_<8alnum>` chain with ACCEPT rules for allowed CIDRs and a final DROP. The dispatch chain `WG_SOCKD_FORWARD` is inserted at position 1 in FORWARD scoped to the WireGuard interface, ensuring it runs before any `RELATED,ESTABLISHED` catch-all rules.
+
+Rules survive wg-sockd restarts and are reconciled from the database on every startup.
+
+See [docs/firewall.md](docs/firewall.md) for full details, PostUp compatibility, and Kubernetes notes.
+
 ### Socket Permissions
 
 The agent listens on a Unix domain socket with restricted permissions:
@@ -540,7 +556,7 @@ For Kubernetes, upgrade the Helm chart (same command as initial install):
 
 ```bash
 helm upgrade --install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.26.0 -n wg-sockd --create-namespace
+  --version 0.27.0 -n wg-sockd --create-namespace
 ```
 
 See [UPGRADING.md](UPGRADING.md) for version-specific migration notes.

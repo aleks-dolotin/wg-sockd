@@ -590,13 +590,39 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pause reconciler BEFORE touching the kernel: the entire sequence
-	// (ConfigurePeers → DB commit → conf write) must be atomic with respect
-	// to the reconciler. Without this, the reconciler could see peers in the
-	// kernel that are not yet in DB and delete them (strict mode).
+	// (firewall apply → ConfigurePeers → DB commit → conf write) must be atomic
+	// with respect to the reconciler. Without this, the reconciler could see
+	// peers in the kernel that are not yet in DB and delete them (strict mode).
 	h.reconciler.Pause()
 	defer h.reconciler.Resume()
 
+	// Apply firewall rules BEFORE ConfigurePeers — zero exposure window (mirrors CreatePeer AC-18).
+	// Build tempPeers list here for use in rollback branches below.
+	tempPeers := make([]storage.Peer, 0, len(resolved))
+	for _, rp := range resolved {
+		clientAIPs := rp.req.ClientAllowedIPs
+		if clientAIPs == "" {
+			clientAIPs = strings.Join(rp.allowedIPs, ", ")
+		}
+		tp := storage.Peer{
+			PublicKey:        rp.pubKey.String(),
+			ClientAddress:    rp.req.ClientAddress,
+			ClientAllowedIPs: clientAIPs,
+			Enabled:          true,
+		}
+		tempPeers = append(tempPeers, tp)
+		if fwErr := h.firewall.ApplyPeer(tp); fwErr != nil {
+			log.Printf("WARN: firewall ApplyPeer failed for batch peer %s: %v — continuing (AC-9)", rp.pubKey, fwErr)
+		}
+	}
+
 	if err := h.wgClient.ConfigurePeers(h.cfg.Interface, wgConfigs); err != nil {
+		// Rollback firewall for all peers applied above.
+		for _, tp := range tempPeers {
+			if rbErr := h.firewall.RemovePeer(tp); rbErr != nil {
+				log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", tp.PublicKey, rbErr)
+			}
+		}
 		writeError(w, http.StatusInternalServerError, "wireguard_error", err.Error())
 		return
 	}
@@ -632,7 +658,12 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 
 	ids, err := h.store.CreatePeersBatch(dbPeers)
 	if err != nil {
-		// Rollback wgctrl: remove all added peers.
+		// Rollback firewall and wgctrl: remove all added peers.
+		for _, tp := range tempPeers {
+			if rbErr := h.firewall.RemovePeer(tp); rbErr != nil {
+				log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", tp.PublicKey, rbErr)
+			}
+		}
 		for _, rp := range resolved {
 			if rbErr := h.wgClient.RemovePeer(h.cfg.Interface, rp.pubKey); rbErr != nil {
 				log.Printf("CRITICAL: wgctrl rollback failed for %s: %v", rp.pubKey, rbErr)
@@ -651,7 +682,12 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 				log.Printf("CRITICAL: DB rollback failed for peer %s: %v", dbp.PublicKey, rbErr)
 			}
 		}
-		// Rollback wgctrl: remove all added peers.
+		// Rollback firewall and wgctrl: remove all added peers.
+		for _, tp := range tempPeers {
+			if rbErr := h.firewall.RemovePeer(tp); rbErr != nil {
+				log.Printf("WARN: firewall RemovePeer rollback failed for %s: %v", tp.PublicKey, rbErr)
+			}
+		}
 		for _, rp := range resolved {
 			if rbErr := h.wgClient.RemovePeer(h.cfg.Interface, rp.pubKey); rbErr != nil {
 				log.Printf("CRITICAL: wgctrl rollback failed for %s: %v", rp.pubKey, rbErr)
@@ -946,9 +982,19 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply firewall when client_allowed_ips, client_address, or enabled changed.
-	firewallRelevant := req.ClientAllowedIPs != nil || req.ClientAddress != nil || req.Enabled != nil
+	// Apply firewall when client_allowed_ips, client_address, enabled, or profile changed.
+	// Profile change updates client_allowed_ips in DB — firewall must reflect new CIDRs.
+	firewallRelevant := req.ClientAllowedIPs != nil || req.ClientAddress != nil || req.Enabled != nil || req.Profile != nil
 	if firewallRelevant {
+		// If client_address changed, remove the old jump rule from the dispatch chain
+		// before applying the new one. Without this, the old "-s oldAddr -j chainName"
+		// entry persists in WG_SOCKD_FORWARD and causes incorrect filtering if the old
+		// address is reassigned to another peer.
+		if req.ClientAddress != nil && *req.ClientAddress != existing.ClientAddress {
+			if rmErr := h.firewall.RemovePeer(*existing); rmErr != nil {
+				log.Printf("WARN: firewall RemovePeer (old address) failed for peer %s: %v", existing.PublicKey, rmErr)
+			}
+		}
 		// Re-read to get the fully updated peer for firewall.
 		if fwPeer, fwErr := h.store.GetPeerByID(id); fwErr == nil {
 			if applyErr := h.firewall.ApplyPeer(*fwPeer); applyErr != nil {

@@ -41,6 +41,7 @@
 
 - [Project Overview](./project-overview.md)
 - [Architecture](./architecture.md)
+- [Server-Side IP Filtering](./firewall.md)
 - [WireGuard Protocol and Kernel API](./wireguard-protocol.md)
 - [Authentication](./authentication.md)
 - [Profiles and Configuration Cascade](./profiles-and-cascade.md)

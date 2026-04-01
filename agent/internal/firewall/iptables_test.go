@@ -149,8 +149,8 @@ func TestPeerChainName_AlphanumericOnly(t *testing.T) {
 		t.Errorf("expected WG_PEER_ prefix, got %q", name)
 	}
 	suffix := name[len("WG_PEER_"):]
-	if len(suffix) != 8 {
-		t.Errorf("expected 8 char suffix, got %d: %q", len(suffix), suffix)
+	if len(suffix) != 16 {
+		t.Errorf("expected 16 char suffix, got %d: %q", len(suffix), suffix)
 	}
 	for _, c := range suffix {
 		isLower := c >= 'a' && c <= 'z'
@@ -179,20 +179,23 @@ func TestPeerChainName_DifferentKeys(t *testing.T) {
 	}
 }
 
-func TestSourceIP(t *testing.T) {
+func TestSourceCIDR(t *testing.T) {
+	// sourceCIDR returns client_address as-is — full CIDR passed to iptables -s.
+	// This avoids the HIGH-4 bug where stripping the mask produced a network address
+	// (e.g. "10.0.0.0/24" → "10.0.0.0") that iptables would never match.
 	tests := []struct {
 		input string
 		want  string
 	}{
-		{"10.8.0.5/32", "10.8.0.5"},
-		{"192.168.1.10/24", "192.168.1.10"},
+		{"10.8.0.5/32", "10.8.0.5/32"},
+		{"192.168.1.10/24", "192.168.1.10/24"},
 		{"", ""},
 		{"10.0.0.1", "10.0.0.1"},
 	}
 	for _, tc := range tests {
-		got := sourceIP(tc.input)
+		got := sourceCIDR(tc.input)
 		if got != tc.want {
-			t.Errorf("sourceIP(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Errorf("sourceCIDR(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
 }
@@ -221,6 +224,62 @@ func TestEnsureDispatchChain_CreatesChainBeforeJumpRule(t *testing.T) {
 	}
 	if nIdx > iIdx && iIdx != -1 {
 		t.Errorf("-N (idx %d) must appear before -I (idx %d)", nIdx, iIdx)
+	}
+}
+
+func TestNewIptablesFirewall_NoJumpRuleOnConstruct(t *testing.T) {
+	// MED-2: NewIptablesFirewall must NOT insert the FORWARD jump rule during construction.
+	// The jump is deferred to the first ApplyPeer/Sync call so that the dispatch chain
+	// is not active (and dropping packets) before per-peer chains are populated.
+	bin := fakeIptables(t)
+	lf := logFile(t)
+	_, err := NewIptablesFirewall(testCfg(), bin)
+	if err != nil {
+		t.Fatalf("NewIptablesFirewall: %v", err)
+	}
+	lines := readLog(t, lf)
+	for _, l := range lines {
+		if strings.Contains(l, "-I") && strings.Contains(l, "FORWARD") {
+			t.Errorf("expected NO -I FORWARD jump rule during NewIptablesFirewall, got: %s", l)
+		}
+	}
+}
+
+func TestApplyPeer_InsertJumpRuleAfterChainPopulated(t *testing.T) {
+	// MED-2: the FORWARD jump rule must appear AFTER the peer chain rules are added.
+	// This ensures that when the dispatch chain becomes active, the per-peer chain
+	// is already fully populated (atomic activation, no empty-chain window).
+	fw, lf := makeFW(t)
+	peer := storage.Peer{
+		PublicKey:        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		ClientAddress:    "10.8.0.5/32",
+		ClientAllowedIPs: "10.0.0.0/8",
+		Enabled:          true,
+	}
+	if err := fw.ApplyPeer(peer); err != nil {
+		t.Fatalf("ApplyPeer: %v", err)
+	}
+	lines := readLog(t, lf)
+
+	// Find index of DROP rule (last rule added to peer chain) and -I FORWARD.
+	dropIdx, insertIdx := -1, -1
+	chainName := peerChainName(peer.PublicKey)
+	for i, l := range lines {
+		if strings.Contains(l, "-A") && strings.Contains(l, chainName) && strings.Contains(l, "DROP") {
+			dropIdx = i
+		}
+		if strings.Contains(l, "-I") && strings.Contains(l, "FORWARD") && strings.Contains(l, "WG_SOCKD_FORWARD") {
+			insertIdx = i
+		}
+	}
+	if dropIdx == -1 {
+		t.Error("expected DROP rule for peer chain")
+	}
+	if insertIdx == -1 {
+		t.Error("expected -I FORWARD jump rule after ApplyPeer")
+	}
+	if dropIdx != -1 && insertIdx != -1 && dropIdx > insertIdx {
+		t.Errorf("DROP rule (idx %d) must appear before -I FORWARD (idx %d) — chain must be populated before dispatch is activated", dropIdx, insertIdx)
 	}
 }
 
@@ -400,6 +459,45 @@ func TestSync_RemovesOrphanChains(t *testing.T) {
 	}
 }
 
+func TestSync_OrphanCleanup_DeletesJumpRuleBeforeChain(t *testing.T) {
+	// CRIT-1: orphan cleanup must remove the jump rule from dispatch chain before -X.
+	// iptables refuses to delete a chain that is still referenced by another chain.
+	// Stub: WG_PEER_Ab3cD4eF has a jump rule in WG_SOCKD_FORWARD.
+	stubContent := strings.Join([]string{
+		"-N WG_SOCKD_FORWARD",
+		"-N WG_PEER_Ab3cD4eF",
+		"-A WG_SOCKD_FORWARD -s 10.8.0.5/32 -j WG_PEER_Ab3cD4eF",
+		"-A FORWARD -i wg0 -j WG_SOCKD_FORWARD",
+	}, "\n") + "\n"
+	setFakeIptablesStub(t, stubContent)
+
+	fw, lf := makeFW(t)
+	_ = fw.Sync([]storage.Peer{})
+
+	lines := readLog(t, lf)
+	joined := strings.Join(lines, "\n")
+
+	// Must see -D WG_SOCKD_FORWARD ... -j WG_PEER_Ab3cD4eF before -X WG_PEER_Ab3cD4eF.
+	dIdx, xIdx := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "-D") && strings.Contains(l, "WG_SOCKD_FORWARD") && strings.Contains(l, "WG_PEER_Ab3cD4eF") {
+			dIdx = i
+		}
+		if strings.Contains(l, "-X") && strings.Contains(l, "WG_PEER_Ab3cD4eF") {
+			xIdx = i
+		}
+	}
+	if dIdx == -1 {
+		t.Errorf("expected -D jump rule removal for WG_PEER_Ab3cD4eF, log:\n%s", joined)
+	}
+	if xIdx == -1 {
+		t.Errorf("expected -X deletion of WG_PEER_Ab3cD4eF, log:\n%s", joined)
+	}
+	if dIdx != -1 && xIdx != -1 && dIdx > xIdx {
+		t.Errorf("jump rule -D (idx %d) must appear before chain -X (idx %d)", dIdx, xIdx)
+	}
+}
+
 func TestSync_OrphanCleanupRunsEvenOnApplyError(t *testing.T) {
 	// AC-19: peer with empty client_address triggers skip (not an error that aborts),
 	// but orphan cleanup still runs after.
@@ -460,3 +558,64 @@ func TestRotateKeys_ChainTransition(t *testing.T) {
 		t.Errorf("expected new chain %s to be referenced (create)", newChain)
 	}
 }
+
+func TestPeerChainName_SuffixIs16Chars(t *testing.T) {
+	// EC-3: suffix must be exactly 16 alphanumeric chars (collision resistance).
+	// Total chain name length = 8 ("WG_PEER_") + 16 = 24, within iptables 29-char limit.
+	keys := []string{
+		"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"aB3+cD4/eF5=gH6+iJ7/kL8=mN9+oP0/qR1=sT2+uV3",
+		"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+	}
+	for _, key := range keys {
+		name := peerChainName(key)
+		suffix := name[len("WG_PEER_"):]
+		if len(suffix) != 16 {
+			t.Errorf("key %q: expected 16-char suffix, got %d: %q", key, len(suffix), suffix)
+		}
+		if len(name) > 29 {
+			t.Errorf("key %q: chain name %q exceeds iptables 29-char limit (%d chars)", key, name, len(name))
+		}
+	}
+}
+
+func TestRemovePeer_EmptyClientAddress_FallbackScanDispatch(t *testing.T) {
+	// EC-5: RemovePeer with empty ClientAddress must scan dispatch chain and remove
+	// any jump rules referencing the peer's chain (prevents broken references).
+	chainName := peerChainName("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	stubContent := strings.Join([]string{
+		"-N WG_SOCKD_FORWARD",
+		"-N " + chainName,
+		"-A WG_SOCKD_FORWARD -s 10.8.0.5/32 -j " + chainName,
+		"-A FORWARD -i wg0 -j WG_SOCKD_FORWARD",
+	}, "\n") + "\n"
+	setFakeIptablesStub(t, stubContent)
+
+	fw, lf := makeFW(t)
+	peer := storage.Peer{
+		PublicKey:     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		ClientAddress: "", // empty — triggers fallback scan
+		Enabled:       true,
+	}
+	if err := fw.RemovePeer(peer); err != nil {
+		t.Fatalf("RemovePeer: %v", err)
+	}
+	lines := readLog(t, lf)
+	joined := strings.Join(lines, "\n")
+
+	// Fallback must issue -D to remove the stale jump rule found in the dispatch chain.
+	if !strings.Contains(joined, "-D") {
+		t.Errorf("expected -D (delete stale jump rule) via fallback scan, log:\n%s", joined)
+	}
+	if !strings.Contains(joined, chainName) {
+		t.Errorf("expected chain %s referenced in fallback cleanup, log:\n%s", chainName, joined)
+	}
+	// Chain must still be flushed and deleted.
+	if !strings.Contains(joined, "-F") {
+		t.Error("expected -F (flush chain)")
+	}
+	if !strings.Contains(joined, "-X") {
+		t.Error("expected -X (delete chain)")
+	}
+}
+

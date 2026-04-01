@@ -1,5 +1,64 @@
 # Upgrading wg-sockd
 
+## v0.x → v1.0.0 (Server-Side IP Filtering)
+
+### New Feature: Firewall enforcement enabled by default
+
+wg-sockd now enforces per-peer destination filtering via iptables. On startup, the agent creates a dispatch chain `WG_SOCKD_FORWARD` in the `FORWARD` chain and per-peer chains `WG_PEER_<8alnum>` with ACCEPT/DROP rules derived from each peer's `client_allowed_ips`.
+
+**This feature is enabled by default** (`firewall.enabled: true`).
+
+### Action required: Check your WireGuard PostUp rules
+
+If your `wg*.conf` file contains broad ACCEPT rules for the WireGuard interface, they must be removed — they bypass per-peer filtering:
+
+```ini
+# ❌ Remove these lines from wg*.conf PostUp/PostDown:
+PostUp = iptables -A FORWARD -i %i -j ACCEPT
+PostDown = iptables -D FORWARD -i %i -j ACCEPT
+```
+
+Keep only the outbound rule (needed for response traffic back to clients):
+
+```ini
+# ✅ Keep these:
+PostUp = iptables -A FORWARD -o %i -j ACCEPT
+PostDown = iptables -D FORWARD -o %i -j ACCEPT
+```
+
+After editing `wg*.conf`, restart the WireGuard interface and wg-sockd:
+
+```bash
+sudo wg-quick down wg1
+sudo wg-quick up wg1
+sudo systemctl restart wg-sockd
+```
+
+### To disable firewall (not recommended)
+
+If `iptables` is not available on your system, or you want to manage filtering externally, disable the feature in `/etc/wg-sockd/config.yaml`:
+
+```yaml
+firewall:
+  enabled: false
+```
+
+### Kubernetes nodes
+
+No additional action required. wg-sockd inserts its jump rule at position 1 scoped to the WireGuard interface (`-I FORWARD 1 -i <wg-interface>`), which ensures it runs before Kubernetes `KUBE-FORWARD RELATED,ESTABLISHED` rules.
+
+### Verify firewall is working after upgrade
+
+```bash
+# Should show -A FORWARD -i wg1 -j WG_SOCKD_FORWARD near the top
+sudo iptables -S FORWARD
+
+# Should show per-peer jump rules with non-zero packet counters after some traffic
+sudo iptables -L WG_SOCKD_FORWARD -v -n
+```
+
+---
+
 ## v0.15.x → v0.16.0 (Management Port for Metrics)
 
 ### Breaking Change: Prometheus metrics moved to dedicated management port

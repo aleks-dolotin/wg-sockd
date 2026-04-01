@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.27.0] — 2026-03-31
+
+### Fixed
+
+- **Firewall chain collision (EC-3)** — `peerChainName` suffix increased from 8 to 16 alphanumeric characters (`WG_PEER_<16alnum>`). Total chain name length 24 chars, within iptables 29-char limit. Reduces birthday-paradox collision probability from ~1/36⁸ to ~1/36¹⁶, making silent same-chain collisions practically impossible. Existing 8-char orphan chains are cleaned up automatically on the next `Sync`.
+- **Stale dispatch-rule leak on `client_address` change (EC-4)** — `UpdatePeer` now calls `firewall.RemovePeer(existing)` before `ApplyPeer(updated)` when `client_address` changes. Previously the old `-s oldAddr -j WG_PEER_*` rule in `WG_SOCKD_FORWARD` was never deleted, causing incorrect filtering if the old address was reassigned to another peer.
+- **Broken dispatch reference on `RemovePeer` with empty `ClientAddress` (EC-5)** — `RemovePeer` now falls back to scanning the dispatch chain and deleting all rules that reference the peer's chain when `ClientAddress` is empty. Previously the jump rule in `WG_SOCKD_FORWARD` was silently left in place, creating a broken reference after the chain was deleted.
+
+### New Tests
+
+- `TestPeerChainName_SuffixIs16Chars` — asserts 16-char suffix and ≤29-char total length
+- `TestRemovePeer_EmptyClientAddress_FallbackScanDispatch` — verifies fallback scan removes stale dispatch rules when `ClientAddress` is empty
+
 ## [v0.26.0] — 2026-03-31
 
 ### Added

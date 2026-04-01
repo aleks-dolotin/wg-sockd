@@ -156,10 +156,6 @@ See [Authentication](./authentication.md) for the full configuration reference, 
 
 ### Uninstall
 
-```bash
-sudo make uninstall
-```
-
 Alternatively: `sudo bash deploy/uninstall.sh`
 
 Preserves config and data in `/etc/wg-sockd` and `/var/lib/wg-sockd`.
@@ -242,7 +238,7 @@ sudo systemctl enable --now wg-sockd
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.26.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.27.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -259,7 +255,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.26.0"
+  tag: "0.27.0"
 
 nodeName: my-wg-node
 
@@ -284,7 +280,7 @@ Then open `http://localhost:8080`.
 
 ```bash
 helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.26.0 -n wg-sockd
+  --version 0.27.0 -n wg-sockd
 ```
 
 To also upgrade the agent on the host node, re-run the install script as described in the [Standalone Upgrade](#upgrade) section.
@@ -298,6 +294,88 @@ make docker-build
 This builds `wg-sockd-ui:latest` using a multi-stage Dockerfile: Stage 1 builds the React SPA (node:20-alpine), Stage 2 builds the Go proxy (golang:1.26-alpine), Stage 3 is the runtime (alpine:latest) with the static React bundle and Go proxy binary.
 
 ## Security Considerations
+
+### Server-Side IP Filtering (Firewall)
+
+wg-sockd enforces per-peer destination filtering via iptables. On startup, it creates a dispatch chain `WG_SOCKD_FORWARD` jumped from `FORWARD`, and per-peer chains `WG_PEER_<8alnum>` with ACCEPT rules for each allowed CIDR and a final DROP rule.
+
+**How it works:**
+
+```
+FORWARD → WG_SOCKD_FORWARD → WG_PEER_xxxxxxxx → ACCEPT (allowed CIDRs)
+                                                  DROP   (everything else)
+```
+
+The jump rule is inserted at position 1 scoped to the WireGuard interface (`-I FORWARD 1 -i wg1 -j WG_SOCKD_FORWARD`), ensuring it runs before any `RELATED,ESTABLISHED` catch-all rules from Docker, Kubernetes, or other services.
+
+**Rules survive wg-sockd restart** — intentional design. This means peer filtering remains active even if the agent is temporarily stopped. On startup, `fw.Sync()` reconciles iptables state with the database.
+
+**Configuration:**
+
+```yaml
+firewall:
+  enabled: true           # default: true — set to false to disable
+  driver: iptables        # only driver available; "none" is alias for disabled
+  managed_chain: WG_SOCKD_FORWARD  # name of the dispatch chain
+```
+
+To disable firewall enforcement entirely (not recommended for production):
+
+```yaml
+firewall:
+  enabled: false
+```
+
+**Requirements:**
+- `iptables` must be installed and accessible from the wg-sockd process
+- The agent needs `CAP_NET_ADMIN` — already granted by the systemd unit
+
+### WireGuard PostUp Compatibility
+
+> **Important:** If your WireGuard config (`wg0.conf` or `wg1.conf`) has broad ACCEPT rules in `PostUp`, they will shadow `WG_SOCKD_FORWARD` and bypass per-peer filtering.
+
+The following PostUp pattern is **incompatible** with wg-sockd firewall:
+
+```ini
+# ❌ This bypasses wg-sockd filtering — remove it
+PostUp = iptables -A FORWARD -i %i -j ACCEPT
+PostDown = iptables -D FORWARD -i %i -j ACCEPT
+```
+
+The `-A FORWARD -i wg1 -j ACCEPT` rule uses append, placing it after `WG_SOCKD_FORWARD` in some cases, and may shadow it in others depending on startup order.
+
+**Correct PostUp** — keep only the outbound (response) rule, remove the inbound:
+
+```ini
+# ✅ Only allow return traffic to WireGuard clients
+PostUp = iptables -A FORWARD -o %i -j ACCEPT
+PostDown = iptables -D FORWARD -o %i -j ACCEPT
+```
+
+wg-sockd manages inbound filtering via `WG_SOCKD_FORWARD`. The `-o %i -j ACCEPT` rule is still needed to allow response packets back to clients.
+
+### Firewall and Kubernetes
+
+If the agent runs on a Kubernetes node, `KUBE-FORWARD` with `ctstate RELATED,ESTABLISHED` is present in the FORWARD chain. Without the `-I FORWARD 1` insertion, all established connections would bypass `WG_SOCKD_FORWARD`. wg-sockd handles this automatically by inserting its jump rule at position 1 scoped to the WireGuard interface.
+
+No Kubernetes configuration changes are needed.
+
+### Firewall and Docker
+
+Docker adds `DOCKER-USER` and `FORWARD` rules via `docker-daemon`. The same `-I FORWARD 1 -i <interface>` strategy ensures wg-sockd rules run first for WireGuard traffic. Non-WireGuard traffic (Docker containers) is unaffected because the jump rule is scoped to `-i <wg-interface>`.
+
+### Firewall Persistence After Reboot
+
+iptables rules are not persistent by default — they are lost on reboot. wg-sockd re-applies all rules via `fw.Sync()` on every startup, so rules are restored automatically as long as wg-sockd starts before traffic flows.
+
+For environments where WireGuard connects before wg-sockd starts, use `iptables-persistent`:
+
+```bash
+sudo apt install iptables-persistent
+sudo netfilter-persistent save
+```
+
+Or ensure `wg-sockd.service` starts before `wg-quick@.service` in systemd ordering.
 
 ### Socket Access Control
 
@@ -409,4 +487,20 @@ Test API directly:
 
 ```bash
 sudo curl --unix-socket /var/run/wg-sockd/wg-sockd.sock http://localhost/api/health
+```
+
+Check firewall chains:
+
+```bash
+# Verify WG_SOCKD_FORWARD jump is at position 1
+sudo iptables -S FORWARD | head -5
+
+# Check dispatch chain rules (one per peer)
+sudo iptables -L WG_SOCKD_FORWARD -v -n
+
+# Check per-peer rules (replace with actual chain name)
+sudo iptables -L WG_PEER_xxxxxxxx -v -n
+
+# Check if traffic is hitting firewall (non-zero pkts = working)
+sudo iptables -L WG_SOCKD_FORWARD -v -n
 ```
