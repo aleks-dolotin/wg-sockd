@@ -68,6 +68,7 @@ type FirewallConfig struct {
 	Enabled      bool   `yaml:"enabled"`
 	Driver       string `yaml:"driver"`        // "iptables" | "nftables" | "none"
 	ManagedChain string `yaml:"managed_chain"` // default: "WG_SOCKD_FORWARD"
+	WGInterface  string `yaml:"-"`             // WireGuard interface name — set from cfg.Interface, not from YAML
 }
 
 // Config holds all agent configuration.

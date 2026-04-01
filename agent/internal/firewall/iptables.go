@@ -77,16 +77,22 @@ func (fw *IptablesFirewall) runWithOutput(args ...string) (string, error) {
 
 // ensureDispatchChain creates the managed chain (if not exists) and ensures
 // the jump rule from FORWARD is present.
-// Order: -N first (idempotent via ignore), then -C/-A for the jump rule (AC-14).
+// Uses -I FORWARD 1 -i <wg-interface> to insert at position 1 scoped to the
+// WireGuard interface only. This guarantees our rules are evaluated before any
+// RELATED,ESTABLISHED catch-all rules (e.g. KUBE-FORWARD) that would otherwise
+// bypass per-peer filtering. Scoping to -i <interface> means non-WG traffic
+// is never affected regardless of position.
 func (fw *IptablesFirewall) ensureDispatchChain() error {
 	chain := fw.cfg.ManagedChain
+	iface := fw.cfg.WGInterface
 
 	// Create the chain — "already exists" error is expected and ignored.
 	_ = fw.run("-N", chain)
 
-	// Check if the jump rule from FORWARD already exists; add if absent.
-	if err := fw.run("-C", "FORWARD", "-j", chain); err != nil {
-		if addErr := fw.run("-A", "FORWARD", "-j", chain); addErr != nil {
+	// Check if the jump rule already exists (scoped to WG interface).
+	if err := fw.run("-C", "FORWARD", "-i", iface, "-j", chain); err != nil {
+		// Rule not present — insert at position 1 so it runs before ESTABLISHED catch-alls.
+		if addErr := fw.run("-I", "FORWARD", "1", "-i", iface, "-j", chain); addErr != nil {
 			return fmt.Errorf("adding jump rule to FORWARD: %w", addErr)
 		}
 	}

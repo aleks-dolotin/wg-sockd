@@ -87,6 +87,7 @@ func testCfg() config.FirewallConfig {
 		Enabled:      true,
 		Driver:       "iptables",
 		ManagedChain: "WG_SOCKD_FORWARD",
+		WGInterface:  "wg0",
 	}
 }
 
@@ -197,29 +198,29 @@ func TestSourceIP(t *testing.T) {
 }
 
 func TestEnsureDispatchChain_CreatesChainBeforeJumpRule(t *testing.T) {
-	// AC-14: -N must appear before -A FORWARD -j in the log
+	// AC-14: -N must appear before -I FORWARD 1 in the log
 	fw, lf := makeFW(t)
 	if err := fw.ensureDispatchChain(); err != nil {
 		t.Fatalf("ensureDispatchChain: %v", err)
 	}
 	lines := readLog(t, lf)
-	nIdx, aIdx := -1, -1
+	nIdx, iIdx := -1, -1
 	for i, l := range lines {
 		if strings.Contains(l, "-N") && strings.Contains(l, "WG_SOCKD_FORWARD") {
 			nIdx = i
 		}
-		if strings.Contains(l, "-A") && strings.Contains(l, "FORWARD") && strings.Contains(l, "WG_SOCKD_FORWARD") {
-			aIdx = i
+		if strings.Contains(l, "-I") && strings.Contains(l, "FORWARD") && strings.Contains(l, "1") && strings.Contains(l, "WG_SOCKD_FORWARD") {
+			iIdx = i
 		}
 	}
 	if nIdx == -1 {
 		t.Error("expected -N WG_SOCKD_FORWARD call")
 	}
-	if aIdx == -1 {
-		t.Error("expected -A FORWARD -j WG_SOCKD_FORWARD call")
+	if iIdx == -1 {
+		t.Error("expected -I FORWARD 1 -i wg0 -j WG_SOCKD_FORWARD call")
 	}
-	if nIdx > aIdx && aIdx != -1 {
-		t.Errorf("-N (idx %d) must appear before -A (idx %d)", nIdx, aIdx)
+	if nIdx > iIdx && iIdx != -1 {
+		t.Errorf("-N (idx %d) must appear before -I (idx %d)", nIdx, iIdx)
 	}
 }
 

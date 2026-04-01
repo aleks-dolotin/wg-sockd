@@ -285,6 +285,7 @@ func main() {
 	cw := confwriter.NewSharedWriter()
 
 	// 5. Construct firewall — Fatalf on unknown driver (startup is the right failure point).
+	cfg.Firewall.WGInterface = cfg.Interface
 	fw, err := firewall.New(cfg.Firewall)
 	if err != nil {
 		log.Fatalf("FATAL: initializing firewall: %v", err)
