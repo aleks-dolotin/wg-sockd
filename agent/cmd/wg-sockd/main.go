@@ -104,6 +104,7 @@ func main() {
 	cfg.RateLimit = fileCfg.RateLimit
 	cfg.Auth = fileCfg.Auth
 	cfg.Firewall = fileCfg.Firewall
+	cfg.IPv6Prefix = fileCfg.IPv6Prefix
 	// Preserve auth defaults if not set in file.
 	if fileCfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = config.Defaults().Auth.SessionTTL
