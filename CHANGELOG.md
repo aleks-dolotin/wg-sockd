@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.31.0] — 2026-04-02
+
+### Bug Fix
+
+- **IPv6Prefix not wired in main.go** — `fileCfg.IPv6Prefix` was not copied to the working `cfg` struct, so the feature was silently disabled at runtime despite being configured in `config.yaml`
+
 ## [v0.30.0] — 2026-04-02
 
 ### IPv6 Leak Prevention
