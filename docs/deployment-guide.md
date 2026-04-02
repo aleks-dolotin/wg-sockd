@@ -238,7 +238,7 @@ sudo systemctl enable --now wg-sockd
 Install the chart directly from the registry:
 
 ```bash
-helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.29.0 -n wg-sockd --create-namespace
+helm install wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui --version 0.30.0 -n wg-sockd --create-namespace
 ```
 
 This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
@@ -255,7 +255,7 @@ This creates a `wg-sockd` namespace and deploys the UI proxy pod there.
 ```yaml
 image:
   repository: ghcr.io/aleks-dolotin/wg-sockd-ui
-  tag: "0.29.0"
+  tag: "0.30.0"
 
 nodeName: my-wg-node
 
@@ -280,7 +280,7 @@ Then open `http://localhost:8080`.
 
 ```bash
 helm upgrade wg-sockd-ui oci://ghcr.io/aleks-dolotin/charts/wg-sockd-ui \
-  --version 0.29.0 -n wg-sockd
+  --version 0.30.0 -n wg-sockd
 ```
 
 To also upgrade the agent on the host node, re-run the install script as described in the [Standalone Upgrade](#upgrade) section.
@@ -394,6 +394,53 @@ The Unix socket is the only entry point. Permissions:
 ### Capabilities
 
 Agent needs only `CAP_NET_ADMIN` for WireGuard netlink operations. No root required.
+
+### IPv6 Leak Prevention
+
+When peers connect via WireGuard, their IPv6 traffic may bypass the tunnel if only IPv4 routes are configured. The `ipv6_prefix` option prevents this by assigning each peer a derived ULA (Unique Local Address) IPv6 address, causing all IPv6 traffic to enter the tunnel where it is dropped server-side.
+
+**How it works:**
+
+1. Each peer's IPv6 address is derived from their IPv4 `client_address` (e.g. `10.0.3.2` → `fd00:ab01::2`)
+2. The client config receives both IPv4 and IPv6 in `Address` and `::/0` in `AllowedIPs`
+3. All IPv6 traffic enters the tunnel; server drops it via `ip6tables`
+
+**Configuration:**
+
+Add to `config.yaml`:
+
+```yaml
+ipv6_prefix: "fd00:ab01::"    # Must end with "::", must be valid IPv6 hex
+```
+
+Add `::/0` to the profile's `allowed_ips` (e.g. via API or directly in DB):
+
+```json
+["0.0.0.0/0", "::/0"]
+```
+
+**Infrastructure setup (on the WireGuard host):**
+
+Add IPv6 address to the WireGuard interface:
+
+```ini
+# In wg1.conf [Interface] section:
+Address = 10.0.3.1/24, fd00:ab01::1/64
+```
+
+Add ip6tables DROP rule to block IPv6 forwarding:
+
+```ini
+# In wg1.conf:
+PostUp = ip6tables -A FORWARD -i %i -j DROP
+PostDown = ip6tables -D FORWARD -i %i -j DROP
+```
+
+After enabling, existing peers must be re-created or updated to receive the new AllowedIPs with `::/0`.
+
+When `ipv6_prefix` is empty (default), behavior is unchanged — no IPv6 addresses are assigned.
+
+**Environment variable:** `WG_SOCKD_IPV6_PREFIX`
 
 ## Troubleshooting
 

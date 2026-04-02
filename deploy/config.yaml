@@ -13,3 +13,8 @@ external_endpoint: "vpn.example.com:51820"  # REQUIRED — used in client .conf 
 # Requires the "full" binary built with: make build-full
 serve_ui: false
 ui_listen: "127.0.0.1:8080"  # TCP bind address for UI (use 0.0.0.0:8080 for remote access)
+
+# IPv6 leak prevention — derive ULA IPv6 addresses from peer IPv4 addresses.
+# When set, clients receive dual-stack tunnel addresses and ::/0 routes (if profile includes it).
+# Requires ip6tables DROP on the WireGuard interface to block IPv6 forwarding.
+# ipv6_prefix: "fd00:ab01::"  # Must end with "::", must be valid IPv6 hex

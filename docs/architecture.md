@@ -145,6 +145,12 @@ Base64 special characters (`+`, `/`, `=`) are skipped. A 44-character WireGuard 
 
 The driver is selected via `firewall.driver` in config; `none` is the escape hatch for environments where iptables is unavailable or undesired.
 
+### IPv6 Leak Prevention
+
+Optional feature controlled by `ipv6_prefix` in config. When set, wg-sockd derives a ULA IPv6 address from each peer's IPv4 `client_address` (e.g. `10.0.3.2` → `fd00:ab01::2/128`) and includes it in both the client and server WireGuard configs. Combined with `::/0` in the profile's `allowed_ips`, this captures all IPv6 traffic into the tunnel. An `ip6tables` DROP rule on the server prevents forwarding — effectively blocking IPv6 leaks without requiring end-to-end IPv6 connectivity.
+
+The derivation is deterministic and requires no database changes — IPv6 addresses are computed at runtime from IPv4 + prefix.
+
 #### Lifecycle Guarantees
 
 - **Idempotent `ApplyPeer`:** Always flushes and recreates the per-peer chain — no diff logic, safe to call repeatedly

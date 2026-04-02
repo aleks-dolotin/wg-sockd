@@ -264,7 +264,7 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse allowed IPs for wgctrl — server-side is always client_address/32.
-	serverAllowedIP := clientAddressTo32(req.ClientAddress)
+	serverAllowedIP := serverAllowedIPs(req.ClientAddress, h.cfg.IPv6Prefix)
 	_, serverNet, _ := net.ParseCIDR(serverAllowedIP) // already validated client_address above
 	allowedNets := []net.IPNet{*serverNet}
 
@@ -566,7 +566,7 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	// Single wgctrl call — server-side AllowedIPs is always client_address/32.
 	wgConfigs := make([]wireguard.PeerConfig, 0, len(resolved))
 	for _, rp := range resolved {
-		serverIP := clientAddressTo32(rp.req.ClientAddress)
+		serverIP := serverAllowedIPs(rp.req.ClientAddress, h.cfg.IPv6Prefix)
 		_, serverNet, _ := net.ParseCIDR(serverIP)
 		wgCfg := wireguard.PeerConfig{
 			PublicKey:    rp.pubKey,
@@ -631,7 +631,7 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	dbPeers := make([]*storage.Peer, 0, len(resolved))
 	for _, rp := range resolved {
 		// Server AllowedIPs = /32 from client_address.
-		serverIP := clientAddressTo32(rp.req.ClientAddress)
+		serverIP := serverAllowedIPs(rp.req.ClientAddress, h.cfg.IPv6Prefix)
 		// Client AllowedIPs: from profile CIDR math or from request.
 		clientAIPs := rp.req.ClientAllowedIPs
 		if clientAIPs == "" {
@@ -865,7 +865,7 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		if req.ClientAddress != nil {
 			effectiveAddr = *req.ClientAddress
 		}
-		serverIP := clientAddressTo32(effectiveAddr)
+		serverIP := serverAllowedIPs(effectiveAddr, h.cfg.IPv6Prefix)
 		_, serverNet, _ := net.ParseCIDR(serverIP)
 
 		err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
@@ -891,7 +891,7 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 		if req.ClientAddress != nil {
 			effectiveAddr = *req.ClientAddress
 		}
-		serverIP := clientAddressTo32(effectiveAddr)
+		serverIP := serverAllowedIPs(effectiveAddr, h.cfg.IPv6Prefix)
 		dbUpdate.AllowedIPs = &serverIP
 	}
 	if newClientAllowedIPs != "" {
@@ -1341,7 +1341,7 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Server AllowedIPs = /32 from client_address.
-	serverAllowedIP := clientAddressTo32(req.ClientAddress)
+	serverAllowedIP := serverAllowedIPs(req.ClientAddress, h.cfg.IPv6Prefix)
 
 	// Validate friendly_name if provided.
 	friendlyName := peer.FriendlyName
@@ -1626,6 +1626,14 @@ func (h *Handlers) buildClientConf(peer *storage.Peer, privateKey string, server
 		clientAddr = peer.AllowedIPs
 	}
 
+	// Derive IPv6 address if prefix configured.
+	if h.cfg.IPv6Prefix != "" {
+		ipv6, err := wireguard.DeriveIPv6(clientAddr, h.cfg.IPv6Prefix)
+		if err == nil && ipv6 != "" {
+			clientAddr = clientAddr + ", " + ipv6
+		}
+	}
+
 	b := confwriter.NewClientConfBuilder()
 	b.SetAddress(clientAddr).
 		SetServerPublicKey(serverPubKey).
@@ -1699,6 +1707,13 @@ func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
 			Notes:        p.Notes,
 			Endpoint:     p.Endpoint,
 		}
+		// Append IPv6 /128 to server AllowedIPs if prefix configured.
+		if h.cfg.IPv6Prefix != "" && p.ClientAddress != "" {
+			ipv6, err := wireguard.DeriveIPv6(p.ClientAddress, h.cfg.IPv6Prefix)
+			if err == nil && ipv6 != "" {
+				pc.AllowedIPs = pc.AllowedIPs + ", " + ipv6
+			}
+		}
 		if p.PersistentKeepalive != nil {
 			pc.PersistentKeepalive = *p.PersistentKeepalive
 		}
@@ -1707,14 +1722,22 @@ func (h *Handlers) buildPeerConfs() ([]confwriter.PeerConf, error) {
 	return peers, nil
 }
 
-// clientAddressTo32 strips the subnet mask from a client_address CIDR (e.g. "10.0.10.3/24")
-// and returns a /32 string (e.g. "10.0.10.3/32") suitable for server [Peer] AllowedIPs.
-func clientAddressTo32(clientAddress string) string {
+// serverAllowedIPs converts a client_address CIDR to server [Peer] AllowedIPs.
+// Returns IPv4 /32 and optionally IPv6 /128 if ipv6Prefix is configured.
+func serverAllowedIPs(clientAddress, ipv6Prefix string) string {
 	ip, _, err := net.ParseCIDR(clientAddress)
 	if err != nil {
 		return clientAddress // fallback: return as-is
 	}
-	return ip.String() + "/32"
+	result := ip.String() + "/32"
+
+	if ipv6Prefix != "" {
+		ipv6, err := wireguard.DeriveIPv6(clientAddress, ipv6Prefix)
+		if err == nil && ipv6 != "" {
+			result += ", " + ipv6
+		}
+	}
+	return result
 }
 
 // NextAddress handles GET /api/peers/next-address.

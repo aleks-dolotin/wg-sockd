@@ -148,3 +148,18 @@ sudo iptables -S | grep WG_PEER
 ```
 
 Non-zero packet counters on `WG_SOCKD_FORWARD` confirm that traffic is reaching the firewall. Zero counters after known traffic indicate the jump rule is being bypassed (check for broad ACCEPT rules earlier in FORWARD).
+
+## IPv6 Leak Prevention
+
+The firewall package manages only IPv4 iptables rules. IPv6 filtering is handled separately via the `ipv6_prefix` config option, which prevents IPv6 traffic from leaking outside the tunnel.
+
+When `ipv6_prefix` is configured, wg-sockd derives a ULA IPv6 address for each peer from their IPv4 `client_address` and includes `::/0` in the client's `AllowedIPs` (if the profile includes it). All IPv6 traffic enters the tunnel, where it is dropped by an `ip6tables` rule on the server.
+
+The `ip6tables` DROP rule is not managed by wg-sockd — it must be configured as infrastructure (e.g. in `wg1.conf` PostUp):
+
+```ini
+PostUp = ip6tables -A FORWARD -i %i -j DROP
+PostDown = ip6tables -D FORWARD -i %i -j DROP
+```
+
+See the [Deployment Guide](deployment-guide.md#ipv6-leak-prevention) for full setup instructions.

@@ -360,6 +360,11 @@ func main() {
 		rl = middleware.NewRateLimiter(float64(cfg.RateLimit), cfg.RateLimit)
 		log.Printf("Rate limiting enabled: %d req/s per connection", cfg.RateLimit)
 	}
+
+	// Log IPv6 prefix status.
+	if cfg.IPv6Prefix != "" {
+		log.Printf("IPv6 leak prevention enabled: prefix %s", cfg.IPv6Prefix)
+	}
 	mux := api.NewRateLimitedRouter(handlers, rl, diskChecker)
 
 	// Prometheus metrics — registered on a dedicated management server (separate port).

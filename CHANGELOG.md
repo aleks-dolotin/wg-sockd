@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.30.0] — 2026-04-02
+
+### IPv6 Leak Prevention
+
+Optional feature that prevents IPv6 traffic from bypassing the WireGuard tunnel.
+
+#### New Config
+
+- `ipv6_prefix` — ULA prefix for deriving IPv6 addresses from peer IPv4 addresses (e.g. `"fd00:ab01::"`)
+- `WG_SOCKD_IPV6_PREFIX` environment variable override
+- Startup validation: prefix must end with `::` and form a valid IPv6 address
+- Startup log: `"IPv6 leak prevention enabled: prefix ..."` when configured
+
+#### Behavior (when `ipv6_prefix` is set)
+
+- Client conf `Address` includes both IPv4 and derived IPv6 (e.g. `10.0.3.2/24, fd00:ab01::2/128`)
+- Server `[Peer] AllowedIPs` includes IPv6 `/128` alongside IPv4 `/32`
+- Server `wg1.conf` entries include IPv6 `/128` in AllowedIPs
+- Profile `allowed_ips` with `::/0` routes all IPv6 into tunnel (profile must include `::/0` explicitly)
+- When prefix is empty (default): zero behavioral change
+
+#### Infrastructure (outside wg-sockd)
+
+- WireGuard interface needs dual-stack Address: `Address = 10.0.3.1/24, fd00:ab01::1/64`
+- `ip6tables -A FORWARD -i wg1 -j DROP` blocks IPv6 forwarding on server
+
+### New Files
+
+- `agent/internal/wireguard/ipv6.go` — `DeriveIPv6()` pure function
+- `agent/internal/wireguard/ipv6_test.go` — 9 table-driven tests
+- `agent/internal/api/ipv6_test.go` — 4 tests for `serverAllowedIPs`
+- `agent/internal/config/validate_ipv6_test.go` — 7 tests for config validation
+
+### Changed
+
+- `clientAddressTo32()` → `serverAllowedIPs()` — now accepts `ipv6Prefix` parameter
+- `buildClientConf` — injects IPv6 address into client `Address` line
+- `buildPeerConfs` — appends IPv6 `/128` to server conf AllowedIPs
+
+### Documentation
+
+- Deployment Guide: new "IPv6 Leak Prevention" section
+- Firewall doc: new "IPv6 Leak Prevention" section
+- Architecture doc: new "IPv6 Leak Prevention" section
+- Config template (`deploy/config.yaml`): `ipv6_prefix` field with comments
+- `CLAUDE.md`: Config Reference updated
+
 ## [v0.29.0] — 2026-04-01
 
 ### Fixed

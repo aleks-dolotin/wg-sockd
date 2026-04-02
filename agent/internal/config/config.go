@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -88,6 +89,7 @@ type Config struct {
 	UIListen          string              `yaml:"ui_listen"`
 	Auth              AuthConfig          `yaml:"auth"`
 	Firewall          FirewallConfig      `yaml:"firewall"`
+	IPv6Prefix        string              `yaml:"ipv6_prefix"`
 }
 
 // Defaults returns a Config populated with default values.
@@ -250,6 +252,7 @@ func (c *Config) ApplyEnv() (map[string]string, error) {
 		}},
 		{"WG_SOCKD_AUTH_WEBAUTHN_ORIGIN", func(v string) error { c.Auth.WebAuthn.Origin = v; return nil }},
 		{"WG_SOCKD_EXTERNAL_ENDPOINT", func(v string) error { c.ExternalEndpoint = v; return nil }},
+		{"WG_SOCKD_IPV6_PREFIX", func(v string) error { c.IPv6Prefix = v; return nil }},
 	}
 
 	for _, m := range mappings {
@@ -335,5 +338,17 @@ func (c *Config) Validate() error {
 	if c.ExternalEndpoint == "" {
 		return fmt.Errorf("external_endpoint is required — set it in config.yaml or via WG_SOCKD_EXTERNAL_ENDPOINT env var (e.g. \"vpn.example.com:51820\")")
 	}
+
+	// Validate ipv6_prefix if set.
+	if c.IPv6Prefix != "" {
+		if !strings.HasSuffix(c.IPv6Prefix, "::") {
+			return fmt.Errorf("ipv6_prefix %q must end with \"::\" (e.g. \"fd00:wg1::\")", c.IPv6Prefix)
+		}
+		// Verify it forms a valid IPv6 prefix.
+		if _, err := netip.ParsePrefix(c.IPv6Prefix + "0/64"); err != nil {
+			return fmt.Errorf("ipv6_prefix %q is not a valid IPv6 prefix: %w", c.IPv6Prefix, err)
+		}
+	}
+
 	return nil
 }
