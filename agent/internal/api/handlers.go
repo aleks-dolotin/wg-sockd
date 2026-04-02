@@ -265,7 +265,9 @@ func (h *Handlers) CreatePeer(w http.ResponseWriter, r *http.Request) {
 
 	// Parse allowed IPs for wgctrl — server-side is always client_address/32.
 	serverAllowedIP := serverAllowedIPs(req.ClientAddress, h.cfg.IPv6Prefix)
-	_, serverNet, _ := net.ParseCIDR(serverAllowedIP) // already validated client_address above
+	// Parse the first (IPv4 /32) CIDR for wgctrl — serverAllowedIP may contain ", ipv6/128".
+	firstCIDR := strings.SplitN(serverAllowedIP, ",", 2)[0]
+	_, serverNet, _ := net.ParseCIDR(strings.TrimSpace(firstCIDR))
 	allowedNets := []net.IPNet{*serverNet}
 
 	// Resolve client_allowed_ips: from profile CIDR math or from request.
@@ -567,7 +569,9 @@ func (h *Handlers) BatchCreatePeers(w http.ResponseWriter, r *http.Request) {
 	wgConfigs := make([]wireguard.PeerConfig, 0, len(resolved))
 	for _, rp := range resolved {
 		serverIP := serverAllowedIPs(rp.req.ClientAddress, h.cfg.IPv6Prefix)
-		_, serverNet, _ := net.ParseCIDR(serverIP)
+		// Parse the first (IPv4 /32) CIDR for wgctrl — serverIP may contain ", ipv6/128".
+		firstCIDR := strings.SplitN(serverIP, ",", 2)[0]
+		_, serverNet, _ := net.ParseCIDR(strings.TrimSpace(firstCIDR))
 		wgCfg := wireguard.PeerConfig{
 			PublicKey:    rp.pubKey,
 			AllowedIPs:   []net.IPNet{*serverNet},
@@ -866,7 +870,9 @@ func (h *Handlers) UpdatePeer(w http.ResponseWriter, r *http.Request) {
 			effectiveAddr = *req.ClientAddress
 		}
 		serverIP := serverAllowedIPs(effectiveAddr, h.cfg.IPv6Prefix)
-		_, serverNet, _ := net.ParseCIDR(serverIP)
+		// Parse the first (IPv4 /32) CIDR for wgctrl — serverIP may contain ", ipv6/128".
+		firstCIDR := strings.SplitN(serverIP, ",", 2)[0]
+		_, serverNet, _ := net.ParseCIDR(strings.TrimSpace(firstCIDR))
 
 		err = h.wgClient.ConfigurePeers(h.cfg.Interface, []wireguard.PeerConfig{
 			{
@@ -1417,7 +1423,9 @@ func (h *Handlers) ApprovePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, serverNet, _ := net.ParseCIDR(serverAllowedIP)
+	// Parse the first (IPv4 /32) CIDR for wgctrl — serverAllowedIP may contain ", ipv6/128".
+	firstCIDR := strings.SplitN(serverAllowedIP, ",", 2)[0]
+	_, serverNet, _ := net.ParseCIDR(strings.TrimSpace(firstCIDR))
 	allowedNets := []net.IPNet{*serverNet}
 
 	wgCfg := wireguard.PeerConfig{

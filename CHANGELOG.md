@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.32.0] — 2026-04-02
+
+### Bug Fix
+
+- **CreatePeer/ApprovePeer/UpdatePeer/BatchCreate panic with IPv6 prefix** — `serverAllowedIPs()` now returns comma-separated CIDRs (e.g. `"10.0.3.2/32, fd00:ab01::2/128"`) but `net.ParseCIDR` at 4 call sites expected a single CIDR, causing nil pointer dereference. Fixed by extracting the first (IPv4 /32) CIDR before parsing.
+
 ## [v0.31.0] — 2026-04-02
 
 ### Bug Fix
